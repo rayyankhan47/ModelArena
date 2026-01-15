@@ -128,10 +128,10 @@ Acceptance criteria:
 
 #### Milestone J — Web search (rate-limited)
 
-- [ ] Add per-agent search budget (e.g., 1 search every 3 rounds)
-- [ ] Integrate into planning only
-- [ ] Display search query + top snippets in inspector
-- [ ] Log searches
+- [x] Add per-agent search budget (e.g., 1 search every 3 rounds)
+- [x] Integrate into planning only
+- [x] Display search query + top snippets in inspector
+- [x] Log searches
 
 Acceptance criteria:
 - Search visibly triggers occasionally without slowing the demo excessively.
@@ -178,5 +178,5 @@ We will build in this order to keep feedback tight and avoid integration dead-en
 ---
 
 Next up:
-- [ ] Milestone J: Web search (rate-limited)
+- [ ] Milestone K: UI inspector drawer + pitch mode (polish that sells Backboard)
 
