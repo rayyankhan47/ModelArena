@@ -71,12 +71,12 @@ Acceptance criteria:
 
 #### Milestone E — Backboard client wrapper (integration point)
 
-- [ ] Implement `orchestrator/backboard_client.py` with:
+- [x] Implement `orchestrator/backboard_client.py` with:
   - model chat calls
   - tool calling support (as required by Backboard)
   - RAG retrieval calls
   - web search calls
-- [ ] Add timeouts/retries/backoff
+- [x] Add timeouts/retries/backoff
 
 Acceptance criteria:
 - A single “ping” prompt roundtrip works and is logged.
@@ -212,5 +212,5 @@ We will build in this order to keep feedback tight and avoid integration dead-en
   - Added pacing controls (pause, step, speed)
 
 Next up:
-- [ ] Milestone E: Backboard client wrapper
+- [ ] Milestone F: Orchestrator v1 (plan → negotiate → commit → resolve → memory)
 
