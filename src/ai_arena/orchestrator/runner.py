@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import json
 import time
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Optional, Set
 
 from ai_arena.config import settings
 from ai_arena.engine.generate import generate_initial_state
@@ -83,7 +83,7 @@ class OrchestratorRunner:
 
             # Planning phase
             for player_id in PLAYER_IDS:
-                self._send_phase_message(
+                response = self._send_phase_message(
                     state=state,
                     deals=deals,
                     player_id=player_id,
@@ -92,6 +92,17 @@ class OrchestratorRunner:
                     model_route=self.router.planner_route(),
                     memory="Auto",
                 )
+                citations = self._extract_citations(response.get("content") or "")
+                if citations:
+                    self.logger.log_tool_calls(
+                        round_num=state.round,
+                        player_id=player_id,
+                        tool_calls=[{
+                            "name": "rag_citations",
+                            "args": {"citations": sorted(citations)},
+                            "result": {}
+                        }],
+                    )
 
             # Negotiation phase
             negotiation_messages = []
@@ -323,6 +334,16 @@ class OrchestratorRunner:
         reward_str = ", ".join([f"{pid}:{rewards.get(pid, 0)}" for pid in PLAYER_IDS])
         event_str = "; ".join([e.kind for e in events[:6]])
         return f"Round {round_num} summary. Actions: {action_str}. Rewards: {reward_str}. Events: {event_str}."
+
+    def _extract_citations(self, text: str) -> Set[str]:
+        """Extract citation tags like [R1] or [S3] from text."""
+        citations: Set[str] = set()
+        for part in text.split("["):
+            if "]" in part:
+                tag = part.split("]")[0].strip()
+                if tag and (tag.startswith("R") or tag.startswith("S")) and tag[1:].isdigit():
+                    citations.add(f"[{tag}]")
+        return citations
 
     def _deals_snapshot(self, deals: List[Any]) -> str:
         if not deals:
