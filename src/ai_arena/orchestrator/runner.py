@@ -287,12 +287,61 @@ class OrchestratorRunner:
             if tool_logs:
                 self.logger.log_tool_calls(state.round, player_id, tool_logs)
 
-            response = self._submit_tool_outputs(
-                thread_id=thread_id,
-                run_id=response["run_id"],
-                tool_outputs=tool_outputs,
-                stream=False,
-            )
+            try:
+                response = self._submit_tool_outputs(
+                    thread_id=thread_id,
+                    run_id=response["run_id"],
+                    tool_outputs=tool_outputs,
+                    stream=False,
+                )
+            except Exception as exc:  # noqa: BLE001
+                # Some Backboard deployments return 404/405 for tool-output submission.
+                # In live demos, we must not crash; fall back to re-asking the model with tools discouraged
+                # (and skip any further tool-processing) so the UI can continue.
+                resp = getattr(exc, "response", None)
+                status = getattr(resp, "status_code", None)
+                if status in (404, 405):
+                    phase_retry = f"{phase}_no_tools_retry"
+                    if phase.startswith("commit"):
+                        retry_content = (
+                            content
+                            + "\n\nIMPORTANT: Do NOT call tools. Reply ONLY with the JSON action object."
+                        )
+                    else:
+                        retry_content = (
+                            content
+                            + "\n\nIMPORTANT: Do NOT call tools. Reply directly with your final answer."
+                        )
+
+                    retry_payload = {
+                        "content": retry_content,
+                        "llm_provider": model_route.provider or "",
+                        "model_name": model_route.model,
+                        "memory": memory,
+                        "web_search": "off",
+                        "send_to_llm": True,
+                        "metadata": {
+                            "phase": phase_retry,
+                            "round": state.round,
+                            "player_id": player_id,
+                            "tool_submit_error": str(status),
+                        },
+                    }
+                    start = time.time()
+                    retry_response = self._post_message(thread_id, **retry_payload)
+                    latency_ms = int((time.time() - start) * 1000)
+                    self.logger.log_agent_call(
+                        round_num=state.round,
+                        player_id=player_id,
+                        phase=phase_retry,
+                        model=model_route.model,
+                        latency_ms=latency_ms,
+                        request=retry_payload,
+                        response=retry_response,
+                    )
+                    return retry_response
+
+                raise
             tool_cycles += 1
 
         return response
