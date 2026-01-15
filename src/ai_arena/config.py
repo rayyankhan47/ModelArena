@@ -1,9 +1,25 @@
 """Configuration management for AI Arena."""
 
+from __future__ import annotations
+
+import os
+
 try:
-    from pydantic_settings import BaseSettings  # type: ignore[import-not-found]
+    from pydantic_settings import BaseSettings, SettingsConfigDict  # type: ignore[import-not-found]
 except ImportError:  # pragma: no cover
     from pydantic import BaseSettings
+    SettingsConfigDict = None  # type: ignore[assignment,misc]
+
+try:
+    from dotenv import load_dotenv
+
+    try:
+        # Load `.env` if available; if the environment forbids reading it, continue with env vars only.
+        load_dotenv(dotenv_path=".env", override=False)
+    except OSError:
+        pass
+except ImportError:  # pragma: no cover
+    load_dotenv = None  # type: ignore[assignment]
 
 
 class Settings(BaseSettings):
@@ -46,9 +62,13 @@ class Settings(BaseSettings):
     # Cost Guardrails
     max_llm_calls_per_match: int = 250
 
-    class Config:
-        env_file = ".env"
-        case_sensitive = False
+    # Avoid pydantic-settings reading `.env` directly (it can raise PermissionError in restricted envs).
+    # We load `.env` ourselves above when permitted, then rely on normal environment variables.
+    if SettingsConfigDict is not None:
+        model_config = SettingsConfigDict(case_sensitive=False)  # type: ignore[misc]
+    else:  # pragma: no cover
+        class Config:
+            case_sensitive = False
 
     def model_post_init(self, __context):  # type: ignore[override]
         """Fallback to legacy planner/actor env vars if per-player not set."""
