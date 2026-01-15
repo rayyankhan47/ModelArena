@@ -1628,6 +1628,8 @@ def _speaker_color(player_id: str) -> Tuple[int, int, int]:
 
 
 def _append_private_message(messages: List[Dict[str, str]], player_id: str, text: str) -> None:
+    if not text:
+        return
     messages.append({
         "speaker": PLAYER_NAMES.get(player_id, player_id),
         "text": text,
@@ -1640,7 +1642,7 @@ def _ensure_reasoning(text: str, phase: str) -> str:
     clean = " ".join((text or "").split())
     if clean:
         return clean
-    return f"Waiting on response for {phase}."
+    return ""
 
 
 def _live_prompt(content: str, phase: str) -> str:
