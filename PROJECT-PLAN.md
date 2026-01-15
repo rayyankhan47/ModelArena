@@ -52,10 +52,10 @@ Acceptance criteria:
 
 #### Milestone C — Pygame UI v1 (engine-driven)
 
-- [ ] Implement full-screen window + scaling layout (board center, panels)
-- [ ] Draw board tiles + players + highlights
-- [ ] Scoreboard + event ticker
-- [ ] Basic pacing controls (pause, step, speed)
+- [x] Implement full-screen window + scaling layout (board center, panels)
+- [x] Draw board tiles + players + highlights
+- [x] Scoreboard + event ticker
+- [x] Basic pacing controls (pause, step, speed)
 
 Acceptance criteria:
 - You can watch a complete match (with dummy bots) at normal speed.
@@ -203,8 +203,16 @@ We will build in this order to keep feedback tight and avoid integration dead-en
   - Implemented round resolution and events
   - Added engine unit tests
 
+#### 2026-01-15 (even later)
+
+- [x] Completed Milestone C: Pygame UI v1
+  - Added a live demo loop with simple random agents
+  - Implemented full-screen layout and basic rendering
+  - Added scoreboard and event ticker
+  - Added pacing controls (pause, step, speed)
+
 Next up:
-- [ ] Milestone C: Pygame UI v1 (engine-driven)
+- [ ] Milestone D: SQLite logging + replay
 
 Next up:
 - [ ] Milestone B: implement deterministic game engine
