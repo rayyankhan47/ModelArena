@@ -26,3 +26,13 @@ class ModelRouter:
     def get_player_model(self, player_id: str) -> ModelRoute:
         """Get the model route for a specific player."""
         return self.player_models[player_id]
+
+    def planner_route(self) -> ModelRoute:
+        """Model route for shared summarization / bookkeeping.
+
+        Backward-compatible with earlier runner code. If legacy PLANNER_MODEL/PROVIDER
+        is set, prefer it; otherwise fall back to P1's model.
+        """
+        model = settings.planner_model or self.player_models["P1"].model
+        provider = settings.planner_provider or self.player_models["P1"].provider
+        return ModelRoute(provider=provider or None, model=model)
