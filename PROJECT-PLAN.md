@@ -138,11 +138,11 @@ Acceptance criteria:
 
 #### Milestone K — UI inspector drawer + pitch mode (polish that sells Backboard)
 
-- [ ] Agent icon dock (click/select)
-- [ ] Inspector drawer with tabs:
+- [x] Agent icon dock (click/select)
+- [x] Inspector drawer with tabs:
   - Summary, Memory, Routing, Tools, RAG/Search, Negotiation
-- [ ] Scrollable + collapsible entries to avoid clutter
-- [ ] Pitch Mode toggle that reduces text and shows feature callouts
+- [x] Scrollable + collapsible entries to avoid clutter
+- [x] Pitch Mode toggle that reduces text and shows feature callouts
 
 Acceptance criteria:
 - A judge can understand memory/routing/tools/RAG/search with 1–2 clicks and no clutter.
@@ -178,5 +178,5 @@ We will build in this order to keep feedback tight and avoid integration dead-en
 ---
 
 Next up:
-- [ ] Milestone K: UI inspector drawer + pitch mode (polish that sells Backboard)
+- [ ] Milestone Wrap-Up: final checks and demo run
 
