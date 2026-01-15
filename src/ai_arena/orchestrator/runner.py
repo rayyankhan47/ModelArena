@@ -230,6 +230,7 @@ class OrchestratorRunner:
         model_route,
         memory: str,
         web_search: str = "off",
+        disable_tools: bool = False,
     ) -> Dict[str, Any]:
         thread_id = self.threads[player_id]
         request_payload = {
@@ -258,6 +259,9 @@ class OrchestratorRunner:
             request=request_payload,
             response=response,
         )
+
+        if disable_tools:
+            return response
 
         # Tool handling loop (limit to avoid infinite cycles)
         tool_cycles = 0

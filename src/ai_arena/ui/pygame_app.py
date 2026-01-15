@@ -309,6 +309,7 @@ def run_live_backboard(
                     model_route=model_route,
                     memory="Auto",
                     web_search=runner._web_search_mode(player_id, state.round),
+                    disable_tools=True,
                 )
                 phase_context[player_id]["models"]["plan"] = model_route.model
                 phase_context[player_id]["planning"] = _extract_response_text(response)
@@ -327,6 +328,7 @@ def run_live_backboard(
                     content=negotiation_prompt(runner._state_summary(state), shared_summary),
                     model_route=model_route,
                     memory="Auto",
+                    disable_tools=True,
                 )
                 phase_context[player_id]["models"]["negotiate"] = model_route.model
                 message = _extract_response_text(response).strip()
@@ -346,6 +348,7 @@ def run_live_backboard(
                     content=action_prompt(runner._state_summary(state), shared_summary),
                     model_route=model_route,
                     memory="Readonly",
+                    disable_tools=True,
                 )
                 phase_context[player_id]["models"]["commit"] = model_route.model
                 phase_context[player_id]["commit"] = _extract_response_text(response)
@@ -359,6 +362,7 @@ def run_live_backboard(
                         content=action_prompt(runner._state_summary(state), shared_summary),
                         model_route=model_route,
                         memory="Readonly",
+                        disable_tools=True,
                     )
                     phase_context[player_id]["commit"] = _extract_response_text(response)
                     action = runner._parse_action(response)
