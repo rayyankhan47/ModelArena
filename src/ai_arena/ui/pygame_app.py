@@ -75,6 +75,13 @@ PLAYER_ASSETS = {
     "P4": "gpt4.png",
 }
 
+PLAYER_NAME_COLORS = {
+    "P1": (220, 90, 90),
+    "P2": (90, 160, 220),
+    "P3": (90, 200, 140),
+    "P4": (200, 180, 80),
+}
+
 PHASES = [
     ("A", "Snapshot"),
     ("B", "Planning"),
@@ -105,6 +112,8 @@ def run_demo(seed: str = "demo_1", rounds: int = 15, speed: float = 1.0, fullscr
 
     state = generate_initial_state(seed=seed, max_rounds=rounds)
     event_log: List[str] = []
+    private_messages: List[Dict[str, str]] = []
+    private_messages: List[Dict[str, str]] = []
     selected_agent = "P1"
     drawer_open = False
     started = False
@@ -212,6 +221,7 @@ def run_demo(seed: str = "demo_1", rounds: int = 15, speed: float = 1.0, fullscr
             phase_index=phase_index,
             negotiation_messages=negotiation_messages,
             negotiation_index=negotiation_index,
+            private_messages=private_messages,
             selected_agent=selected_agent,
             drawer_open=drawer_open,
             player_icons=player_icons,
@@ -263,6 +273,7 @@ def run_live_backboard(
     state = generate_initial_state(seed=match_seed, max_rounds=max_rounds)
     deals = []
     event_log: List[str] = []
+    private_messages: List[Dict[str, str]] = []
     selected_agent = "P1"
     drawer_open = False
     started = False
@@ -294,6 +305,7 @@ def run_live_backboard(
         negotiation_messages = []
         negotiation_index = 0
         pending_actions = None
+        private_messages.clear()
 
     def enter_phase(new_index: int) -> None:
         nonlocal negotiation_messages, negotiation_index, pending_actions, shared_summary, state, match_over
@@ -315,6 +327,7 @@ def run_live_backboard(
                 phase_index=phase_index,
                 negotiation_messages=negotiation_messages,
                 negotiation_index=negotiation_index,
+            private_messages=private_messages,
                 selected_agent=selected_agent,
                 drawer_open=drawer_open,
                 player_icons=player_icons,
@@ -331,7 +344,7 @@ def run_live_backboard(
                     deals=deals,
                     player_id=player_id,
                     phase="plan",
-                    content=planning_prompt(runner._state_summary(state), shared_summary),
+                    content=_live_prompt(planning_prompt(runner._state_summary(state), shared_summary), "planning"),
                     model_route=model_route,
                     memory="Auto",
                     web_search=runner._web_search_mode(player_id, state.round),
@@ -339,6 +352,11 @@ def run_live_backboard(
                 )
                 phase_context[player_id]["models"]["plan"] = model_route.model
                 phase_context[player_id]["planning"] = _extract_response_text(response)
+                _append_private_message(
+                    private_messages,
+                    player_id,
+                    _ensure_reasoning(phase_context[player_id]["planning"], "planning"),
+                )
                 tool_calls = parse_tool_calls(response)
                 if tool_calls:
                     phase_context[player_id]["tools"].extend([c["name"] for c in tool_calls if c.get("name")])
@@ -374,7 +392,7 @@ def run_live_backboard(
                     deals=deals,
                     player_id=player_id,
                     phase="negotiate",
-                    content=negotiation_prompt(runner._state_summary(state), shared_summary),
+                    content=_live_prompt(negotiation_prompt(runner._state_summary(state), shared_summary), "negotiation"),
                     model_route=model_route,
                     memory="Auto",
                     disable_tools=True,
@@ -382,7 +400,11 @@ def run_live_backboard(
                 phase_context[player_id]["models"]["negotiate"] = model_route.model
                 message = _extract_response_text(response).strip()
                 if message:
-                    negotiation_messages.append({"speaker": PLAYER_NAMES.get(player_id, player_id), "text": message})
+                    negotiation_messages.append({
+                        "speaker": PLAYER_NAMES.get(player_id, player_id),
+                        "text": message,
+                        "color": _speaker_color(player_id),
+                    })
                     runner._append_shared_message(f"{player_id} says: {message}")
             negotiation_index = 0
             loading = False
@@ -417,13 +439,18 @@ def run_live_backboard(
                     deals=deals,
                     player_id=player_id,
                     phase="commit",
-                    content=action_prompt(runner._state_summary(state), shared_summary),
+                    content=_live_prompt(action_prompt(runner._state_summary(state), shared_summary), "commit"),
                     model_route=model_route,
                     memory="Readonly",
                     disable_tools=True,
                 )
                 phase_context[player_id]["models"]["commit"] = model_route.model
                 phase_context[player_id]["commit"] = _extract_response_text(response)
+                _append_private_message(
+                    private_messages,
+                    player_id,
+                    _ensure_reasoning(phase_context[player_id]["commit"], "commit"),
+                )
                 action = runner._parse_action(response)
                 if isinstance(action, NoopAction):
                     response = runner._send_phase_message(
@@ -431,12 +458,17 @@ def run_live_backboard(
                         deals=deals,
                         player_id=player_id,
                         phase="commit_retry",
-                        content=action_prompt(runner._state_summary(state), shared_summary),
+                        content=_live_prompt(action_prompt(runner._state_summary(state), shared_summary), "commit"),
                         model_route=model_route,
                         memory="Readonly",
                         disable_tools=True,
                     )
                     phase_context[player_id]["commit"] = _extract_response_text(response)
+                    _append_private_message(
+                        private_messages,
+                        player_id,
+                        _ensure_reasoning(phase_context[player_id]["commit"], "commit"),
+                    )
                     action = runner._parse_action(response)
                 pending_actions[player_id] = action
             loading = False
@@ -464,6 +496,11 @@ def run_live_backboard(
                 runner.logger.log_memory_summaries(state.round - 1, player_id, round_summary, round_summary)
                 phase_context[player_id]["memory_private"] = round_summary
                 phase_context[player_id]["memory_shared"] = round_summary
+                _append_private_message(
+                    private_messages,
+                    player_id,
+                    _ensure_reasoning(round_summary, "memory"),
+                )
             runner._append_shared_message(round_summary)
 
     def advance_phase() -> None:
@@ -540,6 +577,7 @@ def run_live_backboard(
             phase_index=phase_index,
             negotiation_messages=negotiation_messages,
             negotiation_index=negotiation_index,
+            private_messages=private_messages,
             selected_agent=selected_agent,
             drawer_open=drawer_open,
             player_icons=player_icons,
@@ -590,6 +628,7 @@ def run_replay_ui(match_id: str, db_path: str = "ai_arena.db", speed: float = 1.
     negotiation_index = 0
     round_data: Dict[str, object] | None = None
     phase_context: Dict[str, Dict[str, object]] | None = None
+    private_messages: List[Dict[str, str]] = []
     layout: Dict[str, object] = {}
 
     def load_round_context(round_num: int) -> None:
@@ -683,6 +722,10 @@ def run_replay_ui(match_id: str, db_path: str = "ai_arena.db", speed: float = 1.
         if PHASES[phase_index][1] in ["Resolve", "Memory"] and round_data and round_data.get("state"):
             display_state = _state_from_dict(round_data["state"])
 
+        private_messages = _build_private_messages_for_phase(
+            phase_name=PHASES[phase_index][1],
+            phase_context=phase_context,
+        )
         layout = _render_frame(
             screen=screen,
             state=display_state,
@@ -696,6 +739,7 @@ def run_replay_ui(match_id: str, db_path: str = "ai_arena.db", speed: float = 1.
             phase_index=phase_index,
             negotiation_messages=negotiation_messages,
             negotiation_index=negotiation_index,
+            private_messages=private_messages,
             selected_agent=selected_agent,
             drawer_open=drawer_open,
             player_icons=player_icons,
@@ -840,6 +884,7 @@ def _render_frame(
     phase_index: int,
     negotiation_messages: List[Dict[str, str]],
     negotiation_index: int,
+    private_messages: List[Dict[str, str]],
     selected_agent: str,
     drawer_open: bool,
     player_icons: Dict[str, pygame.Surface],
@@ -915,13 +960,29 @@ def _render_frame(
     # Scoreboard
     _draw_scoreboard(screen, state, panel_rect, font, small_font, player_icons)
 
-    # Negotiation chat panel
-    if started and phase_name == "Negotiation":
+    # Chat panels
+    chat_top = panel_rect.y + 190
+    chat_gap = 12
+    available_h = panel_rect.height - (chat_top - panel_rect.y) - 20
+    private_h = int(available_h * 0.6)
+    public_h = max(120, available_h - private_h - chat_gap)
+    private_rect = pygame.Rect(panel_rect.x + 16, chat_top, panel_rect.width - 32, private_h)
+    public_rect = pygame.Rect(panel_rect.x + 16, private_rect.bottom + chat_gap, panel_rect.width - 32, public_h)
+
+    if started:
         _draw_chat_panel(
             screen,
-            panel_rect,
+            private_rect,
+            small_font,
+            private_messages[-10:],
+            title="Private",
+        )
+        _draw_chat_panel(
+            screen,
+            public_rect,
             small_font,
             negotiation_messages[:negotiation_index],
+            title="Public",
         )
 
     # Event log and legend
@@ -1008,21 +1069,35 @@ def _draw_scoreboard(screen, state: GameState, panel_rect: pygame.Rect, font, sm
         y += 34
 
 
-def _draw_chat_panel(screen, panel_rect: pygame.Rect, font, messages: List[Dict[str, str]]):
-    chat_rect = pygame.Rect(panel_rect.x + 16, panel_rect.y + 160, panel_rect.width - 32, panel_rect.height - 190)
-    pygame.draw.rect(screen, (18, 18, 22), chat_rect)
-    pygame.draw.rect(screen, (60, 60, 70), chat_rect, 1)
-    title = font.render("Negotiation (public)", True, TEXT_COLOR)
-    screen.blit(title, (chat_rect.x + 8, chat_rect.y + 8))
-    y = chat_rect.y + 32
-    for msg in messages[-8:]:
+def _draw_chat_panel(
+    screen,
+    rect: pygame.Rect,
+    font,
+    messages: List[Dict[str, str]],
+    title: str,
+):
+    pygame.draw.rect(screen, (18, 18, 22), rect)
+    pygame.draw.rect(screen, (60, 60, 70), rect, 1)
+    title_surf = font.render(title, True, TEXT_COLOR)
+    screen.blit(title_surf, (rect.x + 8, rect.y + 8))
+    y = rect.y + 32
+    for msg in messages:
         speaker = msg.get("speaker", "Agent")
         text = msg.get("text", "")
-        lines = _wrap_text(f"{speaker}: {text}", font, chat_rect.width - 16)
-        for line in lines:
-            if y > chat_rect.bottom - 20:
-                break
-            screen.blit(font.render(line, True, (210, 210, 220)), (chat_rect.x + 8, y))
+        color = msg.get("color", TEXT_COLOR)
+        prefix = f"{speaker}: "
+        prefix_w = font.size(prefix)[0]
+        lines = _wrap_text(text, font, rect.width - 16 - prefix_w)
+        if not lines:
+            lines = [""]
+        for idx, line in enumerate(lines):
+            if y > rect.bottom - 20:
+                return
+            if idx == 0:
+                screen.blit(font.render(prefix, True, color), (rect.x + 8, y))
+                screen.blit(font.render(line, True, (210, 210, 220)), (rect.x + 8 + prefix_w, y))
+            else:
+                screen.blit(font.render(line, True, (210, 210, 220)), (rect.x + 8 + prefix_w, y))
             y += SMALL_LINE_HEIGHT
 
 
@@ -1325,7 +1400,7 @@ def _build_demo_negotiation_messages(state: GameState, round_num: int) -> List[D
             text = "Leading on points. Propose a temporary non-aggression."
         else:
             text = "Looking for a vault key. Will return favors later."
-        messages.append({"speaker": name, "text": text})
+        messages.append({"speaker": name, "text": text, "color": _speaker_color(pid)})
     return messages
 
 
@@ -1431,7 +1506,11 @@ def _build_negotiation_from_calls(
                 text = _extract_response_text(call.get("response", {}))
                 break
         if text:
-            messages.append({"speaker": PLAYER_NAMES.get(pid, pid), "text": text})
+            messages.append({
+                "speaker": PLAYER_NAMES.get(pid, pid),
+                "text": text,
+                "color": _speaker_color(pid),
+            })
     return messages
 
 
@@ -1442,10 +1521,69 @@ def _extract_response_text(response: object) -> str:
             return " ".join(str(item) for item in content)
         if content:
             return str(content)
-        message = response.get("message") or response.get("output")
-        if message:
-            return str(message)
+        output = response.get("output")
+        if output:
+            return str(output)
     return str(response) if response else ""
+
+
+def _speaker_color(player_id: str) -> Tuple[int, int, int]:
+    return PLAYER_NAME_COLORS.get(player_id, TEXT_COLOR)
+
+
+def _append_private_message(messages: List[Dict[str, str]], player_id: str, text: str) -> None:
+    messages.append({
+        "speaker": PLAYER_NAMES.get(player_id, player_id),
+        "text": text,
+        "color": _speaker_color(player_id),
+    })
+    del messages[:-12]
+
+
+def _ensure_reasoning(text: str, phase: str) -> str:
+    clean = " ".join((text or "").split())
+    if clean:
+        return clean
+    return f"No response received during {phase}."
+
+
+def _live_prompt(content: str, phase: str) -> str:
+    return (
+        content
+        + "\n\n"
+        + f"Reply with 1-2 concise sentences in plain English describing your {phase} reasoning."
+    )
+
+
+def _build_private_messages_for_phase(
+    phase_name: str,
+    phase_context: Dict[str, Dict[str, object]] | None,
+) -> List[Dict[str, str]]:
+    if not phase_context:
+        return []
+    messages: List[Dict[str, str]] = []
+    for pid in PLAYER_NAMES.keys():
+        ctx = phase_context.get(pid, {})
+        text = ""
+        if phase_name == "Planning":
+            text = ctx.get("planning", "")
+        elif phase_name == "Negotiation":
+            text = ctx.get("planning", "") or "Preparing negotiation."
+        elif phase_name == "Commit":
+            text = ctx.get("commit", "")
+        elif phase_name == "Resolve":
+            text = ctx.get("resolve", "")
+        elif phase_name == "Memory":
+            text = ctx.get("memory_private", "")
+        elif phase_name == "Snapshot":
+            text = "Reviewing the board state."
+        text = _ensure_reasoning(str(text), phase_name.lower())
+        messages.append({
+            "speaker": PLAYER_NAMES.get(pid, pid),
+            "text": text,
+            "color": _speaker_color(pid),
+        })
+    return messages
 def _event_value(ev, key: str, default=None):
     if isinstance(ev, dict):
         return ev.get(key, default)
