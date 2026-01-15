@@ -178,5 +178,5 @@ We will build in this order to keep feedback tight and avoid integration dead-en
 ---
 
 Next up:
-- [ ] Milestone Wrap-Up: final checks and demo run
+- [x] Milestone Wrap-Up: final checks and demo run
 
