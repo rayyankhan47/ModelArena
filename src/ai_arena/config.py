@@ -28,8 +28,12 @@ class Settings(BaseSettings):
     actor_provider: str = ""
 
     # Search Rate Limiting
+    enable_web_search: bool = False
     search_budget_per_agent: int = 1
     search_cooldown_rounds: int = 3
+
+    # Cost Guardrails
+    max_llm_calls_per_match: int = 250
 
     class Config:
         env_file = ".env"

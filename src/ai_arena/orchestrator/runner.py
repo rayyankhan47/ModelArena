@@ -63,6 +63,7 @@ class OrchestratorRunner:
         self.shared_thread_id: Optional[str] = None
         self._search_budget: Dict[str, int] = {}
         self._last_search_round: Dict[str, int] = {}
+        self._llm_calls: int = 0
 
     def run_match(self, seed: Optional[str] = None, rounds: Optional[int] = None) -> str:
         """Run a full match using Backboard and return match_id."""
@@ -246,7 +247,7 @@ class OrchestratorRunner:
         }
 
         start = time.time()
-        response = self.client.post_message(thread_id, **request_payload)
+        response = self._post_message(thread_id, **request_payload)
         latency_ms = int((time.time() - start) * 1000)
         self.logger.log_agent_call(
             round_num=state.round,
@@ -282,7 +283,7 @@ class OrchestratorRunner:
             if tool_logs:
                 self.logger.log_tool_calls(state.round, player_id, tool_logs)
 
-            response = self.client.submit_tool_outputs(
+            response = self._submit_tool_outputs(
                 thread_id=thread_id,
                 run_id=response["run_id"],
                 tool_outputs=tool_outputs,
@@ -295,7 +296,7 @@ class OrchestratorRunner:
     def _append_shared_message(self, content: str) -> None:
         if not self.shared_thread_id:
             return
-        self.client.post_message(
+        self._post_message(
             self.shared_thread_id,
             content=content,
             llm_provider=self.router.planner_route().provider or "",
@@ -308,7 +309,7 @@ class OrchestratorRunner:
 
     def _append_agent_memory(self, player_id: str, summary: str) -> None:
         thread_id = self.threads[player_id]
-        self.client.post_message(
+        self._post_message(
             thread_id,
             content=summary,
             llm_provider=self.router.planner_route().provider or "",
@@ -326,7 +327,7 @@ class OrchestratorRunner:
             f"Provide a short shared summary for round {round_num}. "
             "Include key negotiations, deals, and notable behaviors in 3 bullets."
         )
-        response = self.client.post_message(
+        response = self._post_message(
             self.shared_thread_id,
             content=prompt,
             llm_provider=self.router.planner_route().provider or "",
@@ -374,6 +375,8 @@ class OrchestratorRunner:
             self._last_search_round[pid] = -9999
 
     def _web_search_mode(self, player_id: str, round_num: int) -> str:
+        if not settings.enable_web_search:
+            return "off"
         if self._search_budget.get(player_id, 0) <= 0:
             return "off"
         last_round = self._last_search_round.get(player_id, -9999)
@@ -397,6 +400,21 @@ class OrchestratorRunner:
             status = getattr(deal, "status", "?")
             parts.append(f"{from_player}->{to_player}({status})")
         return ", ".join(parts)
+
+    def _consume_llm_call(self) -> None:
+        if settings.max_llm_calls_per_match <= 0:
+            return
+        self._llm_calls += 1
+        if self._llm_calls > settings.max_llm_calls_per_match:
+            raise RuntimeError("LLM call budget exceeded; aborting match to avoid runaway costs.")
+
+    def _post_message(self, thread_id: str, **kwargs) -> Dict[str, Any]:
+        self._consume_llm_call()
+        return self.client.post_message(thread_id, **kwargs)
+
+    def _submit_tool_outputs(self, thread_id: str, run_id: str, tool_outputs: List[Dict[str, str]], stream: bool) -> Dict[str, Any]:
+        self._consume_llm_call()
+        return self.client.submit_tool_outputs(thread_id, run_id, tool_outputs, stream)
 
     def _parse_action(self, response: Dict[str, Any]) -> Action:
         content = response.get("content") or ""
