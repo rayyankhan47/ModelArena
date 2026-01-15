@@ -94,13 +94,13 @@ Acceptance criteria:
 
 #### Milestone G — Tools (real tool execution + UI)
 
-- [ ] Implement `orchestrator/tools.py` tool registry + handlers:
+- [x] Implement `orchestrator/tools.py` tool registry + handlers:
   - get public state
   - get player state
   - list legal actions
   - propose/accept/reject deal
-- [ ] Tool call loop: agent can call tools and then continue
-- [ ] UI inspector shows tool calls per agent per round
+- [x] Tool call loop: agent can call tools and then continue
+- [x] UI inspector shows tool calls per agent per round
 
 Acceptance criteria:
 - At least one tool call occurs during a match and is visible in UI and logs.
@@ -178,5 +178,5 @@ We will build in this order to keep feedback tight and avoid integration dead-en
 ---
 
 Next up:
-- [ ] Milestone G: Tools (real tool execution + UI)
+- [ ] Milestone H: Negotiation + deals (logging only)
 
