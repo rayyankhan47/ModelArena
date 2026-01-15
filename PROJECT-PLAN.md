@@ -120,8 +120,8 @@ Acceptance criteria:
 - [x] Write `rag/corpus/rules.md` and `rag/corpus/strategy.md`
 - [x] Implement `rag/index.py` and `rag/retrieve.py`
 - [x] Integrate retrieval into planning calls (top-k snippets)
-- [ ] Display retrieved snippets in inspector
-- [ ] Log retrieval queries/results
+- [x] Display retrieved snippets in inspector
+- [x] Log retrieval queries/results
 
 Acceptance criteria:
 - Agents consistently cite rules/tactics from retrieved snippets (or at least the snippets are clearly used in context).
