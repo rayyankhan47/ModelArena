@@ -62,10 +62,10 @@ PLAYER_COLORS = {
 }
 
 PLAYER_NAMES = {
-    "P1": "GPT-4",
-    "P2": "Claude",
-    "P3": "Gemini",
-    "P4": "GPT-3.5",
+    "P1": "gpt-5",
+    "P2": "claude-3-7-sonnet",
+    "P3": "gemini-2.5-flash",
+    "P4": "gpt-4.1-mini",
 }
 
 PLAYER_ASSETS = {

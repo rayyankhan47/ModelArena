@@ -23,13 +23,13 @@ class Settings(BaseSettings):
     ui_default_speed: float = 1.0
 
     # Backboard Model Routing (per-player models)
-    p1_model: str = "gpt-4"
+    p1_model: str = "gpt-5"
     p1_provider: str = "openai"
-    p2_model: str = "claude-3-5-sonnet"
+    p2_model: str = "claude-3-7-sonnet"
     p2_provider: str = "anthropic"
-    p3_model: str = "gemini-1.5-pro"
+    p3_model: str = "gemini-2.5-flash"
     p3_provider: str = "google"
-    p4_model: str = "gpt-3.5-turbo"
+    p4_model: str = "gpt-4.1-mini"
     p4_provider: str = "openai"
 
     # Legacy routing (optional fallback)
