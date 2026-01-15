@@ -14,7 +14,6 @@ from ai_arena.engine.rules import legal_actions
 from ai_arena.config import settings
 from ai_arena.orchestrator.prompts import action_prompt, negotiation_prompt, planning_prompt
 from ai_arena.orchestrator.runner import OrchestratorRunner, PLAYER_IDS
-from ai_arena.orchestrator.tools import parse_tool_calls
 from ai_arena.storage.logger import MatchReplay
 from ai_arena.engine.types import (
     ActionType,
@@ -112,7 +111,8 @@ def run_demo(seed: str = "demo_1", rounds: int = 15, speed: float = 1.0, fullscr
 
     state = generate_initial_state(seed=seed, max_rounds=rounds)
     event_log: List[str] = []
-    private_messages: List[Dict[str, str]] = []
+    private_scroll = 0
+    public_scroll = 0
     private_messages: List[Dict[str, str]] = []
     selected_agent = "P1"
     drawer_open = False
@@ -192,6 +192,18 @@ def run_demo(seed: str = "demo_1", rounds: int = 15, speed: float = 1.0, fullscr
                             break
                 if drawer_open and layout.get("drawer_rect") and not layout["drawer_rect"].collidepoint(pos):
                     drawer_open = False
+            if event.type == pygame.MOUSEWHEEL:
+                mouse_pos = pygame.mouse.get_pos()
+                if layout.get("private_chat_rect") and layout["private_chat_rect"].collidepoint(mouse_pos):
+                    private_scroll = max(0, private_scroll - event.y * SMALL_LINE_HEIGHT)
+                if layout.get("public_chat_rect") and layout["public_chat_rect"].collidepoint(mouse_pos):
+                    public_scroll = max(0, public_scroll - event.y * SMALL_LINE_HEIGHT)
+            if event.type == pygame.MOUSEWHEEL:
+                mouse_pos = pygame.mouse.get_pos()
+                if layout.get("private_chat_rect") and layout["private_chat_rect"].collidepoint(mouse_pos):
+                    private_scroll = max(0, private_scroll - event.y * SMALL_LINE_HEIGHT)
+                if layout.get("public_chat_rect") and layout["public_chat_rect"].collidepoint(mouse_pos):
+                    public_scroll = max(0, public_scroll - event.y * SMALL_LINE_HEIGHT)
 
         now = time.time()
         if autoplay and started and not match_over:
@@ -228,7 +240,11 @@ def run_demo(seed: str = "demo_1", rounds: int = 15, speed: float = 1.0, fullscr
             stats=stats,
             phase_context=None,
             loading=False,
+            private_scroll=private_scroll,
+            public_scroll=public_scroll,
         )
+        private_scroll = min(private_scroll, layout.get("private_max_scroll", 0))
+        public_scroll = min(public_scroll, layout.get("public_max_scroll", 0))
         pygame.display.flip()
         clock.tick(60)
 
@@ -274,6 +290,8 @@ def run_live_backboard(
     deals = []
     event_log: List[str] = []
     private_messages: List[Dict[str, str]] = []
+    private_scroll = 0
+    public_scroll = 0
     selected_agent = "P1"
     drawer_open = False
     started = False
@@ -307,6 +325,42 @@ def run_live_backboard(
         pending_actions = None
         private_messages.clear()
 
+    def _ensure_live_reply(
+        *,
+        player_id: str,
+        phase: str,
+        model_route,
+        content: str,
+        memory: str,
+        web_search: str = "off",
+    ) -> str:
+        response = runner._send_phase_message(
+            state=state,
+            deals=deals,
+            player_id=player_id,
+            phase=phase,
+            content=_live_prompt(content, phase),
+            model_route=model_route,
+            memory=memory,
+            web_search=web_search,
+            disable_tools=True,
+        )
+        text = _extract_response_text(response).strip()
+        if text:
+            return text
+        fallback = runner._send_phase_message(
+            state=state,
+            deals=deals,
+            player_id=player_id,
+            phase=f"{phase}_fallback",
+            content="Reply with 1 concise English sentence. Do not call tools. Do not return JSON.",
+            model_route=model_route,
+            memory=memory,
+            web_search="off",
+            disable_tools=True,
+        )
+        return _extract_response_text(fallback).strip()
+
     def enter_phase(new_index: int) -> None:
         nonlocal negotiation_messages, negotiation_index, pending_actions, shared_summary, state, match_over
         nonlocal last_actions, last_rewards, last_events
@@ -327,39 +381,35 @@ def run_live_backboard(
                 phase_index=phase_index,
                 negotiation_messages=negotiation_messages,
                 negotiation_index=negotiation_index,
-            private_messages=private_messages,
+                private_messages=private_messages,
                 selected_agent=selected_agent,
                 drawer_open=drawer_open,
                 player_icons=player_icons,
                 stats=stats,
                 phase_context=phase_context,
                 loading=loading,
+                private_scroll=private_scroll,
+                public_scroll=public_scroll,
             )
             pygame.display.flip()
             shared_summary = runner._get_shared_summary(state.round)
             for player_id in PLAYER_IDS:
                 model_route = runner.router.get_player_model(player_id)
-                response = runner._send_phase_message(
-                    state=state,
-                    deals=deals,
+                response_text = _ensure_live_reply(
                     player_id=player_id,
                     phase="plan",
-                    content=_live_prompt(planning_prompt(runner._state_summary(state), shared_summary), "planning"),
                     model_route=model_route,
+                    content=planning_prompt(runner._state_summary(state), shared_summary),
                     memory="Auto",
                     web_search=runner._web_search_mode(player_id, state.round),
-                    disable_tools=True,
                 )
                 phase_context[player_id]["models"]["plan"] = model_route.model
-                phase_context[player_id]["planning"] = _extract_response_text(response)
+                phase_context[player_id]["planning"] = response_text
                 _append_private_message(
                     private_messages,
                     player_id,
                     _ensure_reasoning(phase_context[player_id]["planning"], "planning"),
                 )
-                tool_calls = parse_tool_calls(response)
-                if tool_calls:
-                    phase_context[player_id]["tools"].extend([c["name"] for c in tool_calls if c.get("name")])
             loading = False
         if phase_name == "Negotiation":
             loading = True
@@ -376,29 +426,28 @@ def run_live_backboard(
                 phase_index=phase_index,
                 negotiation_messages=negotiation_messages,
                 negotiation_index=negotiation_index,
+                private_messages=private_messages,
                 selected_agent=selected_agent,
                 drawer_open=drawer_open,
                 player_icons=player_icons,
                 stats=stats,
                 phase_context=phase_context,
                 loading=loading,
+                private_scroll=private_scroll,
+                public_scroll=public_scroll,
             )
             pygame.display.flip()
             negotiation_messages = [{"speaker": "Moderator", "text": f"Round {state.round + 1} negotiation begins."}]
             for player_id in PLAYER_IDS:
                 model_route = runner.router.get_player_model(player_id)
-                response = runner._send_phase_message(
-                    state=state,
-                    deals=deals,
+                message = _ensure_live_reply(
                     player_id=player_id,
                     phase="negotiate",
-                    content=_live_prompt(negotiation_prompt(runner._state_summary(state), shared_summary), "negotiation"),
                     model_route=model_route,
+                    content=negotiation_prompt(runner._state_summary(state), shared_summary),
                     memory="Auto",
-                    disable_tools=True,
                 )
                 phase_context[player_id]["models"]["negotiate"] = model_route.model
-                message = _extract_response_text(response).strip()
                 if message:
                     negotiation_messages.append({
                         "speaker": PLAYER_NAMES.get(player_id, player_id),
@@ -423,53 +472,58 @@ def run_live_backboard(
                 phase_index=phase_index,
                 negotiation_messages=negotiation_messages,
                 negotiation_index=negotiation_index,
+                private_messages=private_messages,
                 selected_agent=selected_agent,
                 drawer_open=drawer_open,
                 player_icons=player_icons,
                 stats=stats,
                 phase_context=phase_context,
                 loading=loading,
+                private_scroll=private_scroll,
+                public_scroll=public_scroll,
             )
             pygame.display.flip()
             pending_actions = {}
             for player_id in PLAYER_IDS:
                 model_route = runner.router.get_player_model(player_id)
-                response = runner._send_phase_message(
+                action_response = runner._send_phase_message(
                     state=state,
                     deals=deals,
                     player_id=player_id,
                     phase="commit",
-                    content=_live_prompt(action_prompt(runner._state_summary(state), shared_summary), "commit"),
+                    content=action_prompt(runner._state_summary(state), shared_summary),
                     model_route=model_route,
                     memory="Readonly",
                     disable_tools=True,
                 )
+                action = runner._parse_action(action_response)
+                if isinstance(action, NoopAction):
+                    action_response = runner._send_phase_message(
+                        state=state,
+                        deals=deals,
+                        player_id=player_id,
+                        phase="commit_retry",
+                        content=action_prompt(runner._state_summary(state), shared_summary),
+                        model_route=model_route,
+                        memory="Readonly",
+                        disable_tools=True,
+                    )
+                    action = runner._parse_action(action_response)
+
+                reasoning_text = _ensure_live_reply(
+                    player_id=player_id,
+                    phase="commit_reason",
+                    model_route=model_route,
+                    content="Briefly explain your chosen action.",
+                    memory="Readonly",
+                )
                 phase_context[player_id]["models"]["commit"] = model_route.model
-                phase_context[player_id]["commit"] = _extract_response_text(response)
+                phase_context[player_id]["commit"] = reasoning_text
                 _append_private_message(
                     private_messages,
                     player_id,
                     _ensure_reasoning(phase_context[player_id]["commit"], "commit"),
                 )
-                action = runner._parse_action(response)
-                if isinstance(action, NoopAction):
-                    response = runner._send_phase_message(
-                        state=state,
-                        deals=deals,
-                        player_id=player_id,
-                        phase="commit_retry",
-                        content=_live_prompt(action_prompt(runner._state_summary(state), shared_summary), "commit"),
-                        model_route=model_route,
-                        memory="Readonly",
-                        disable_tools=True,
-                    )
-                    phase_context[player_id]["commit"] = _extract_response_text(response)
-                    _append_private_message(
-                        private_messages,
-                        player_id,
-                        _ensure_reasoning(phase_context[player_id]["commit"], "commit"),
-                    )
-                    action = runner._parse_action(response)
                 pending_actions[player_id] = action
             loading = False
         if phase_name == "Resolve":
@@ -584,7 +638,11 @@ def run_live_backboard(
             stats=stats,
             phase_context=phase_context,
             loading=loading,
+            private_scroll=private_scroll,
+            public_scroll=public_scroll,
         )
+        private_scroll = min(private_scroll, layout.get("private_max_scroll", 0))
+        public_scroll = min(public_scroll, layout.get("public_max_scroll", 0))
         pygame.display.flip()
         clock.tick(60)
 
@@ -624,6 +682,8 @@ def run_replay_ui(match_id: str, db_path: str = "ai_arena.db", speed: float = 1.
     player_icons = _load_player_icons()
     stats = _init_match_stats()
     event_log: List[str] = []
+    private_scroll = 0
+    public_scroll = 0
     negotiation_messages: List[Dict[str, str]] = []
     negotiation_index = 0
     round_data: Dict[str, object] | None = None
@@ -702,6 +762,12 @@ def run_replay_ui(match_id: str, db_path: str = "ai_arena.db", speed: float = 1.
                             break
                 if drawer_open and layout.get("drawer_rect") and not layout["drawer_rect"].collidepoint(pos):
                     drawer_open = False
+            if event.type == pygame.MOUSEWHEEL:
+                mouse_pos = pygame.mouse.get_pos()
+                if layout.get("private_chat_rect") and layout["private_chat_rect"].collidepoint(mouse_pos):
+                    private_scroll = max(0, private_scroll - event.y * SMALL_LINE_HEIGHT)
+                if layout.get("public_chat_rect") and layout["public_chat_rect"].collidepoint(mouse_pos):
+                    public_scroll = max(0, public_scroll - event.y * SMALL_LINE_HEIGHT)
 
         now = time.time()
         if autoplay and not match_over:
@@ -746,7 +812,11 @@ def run_replay_ui(match_id: str, db_path: str = "ai_arena.db", speed: float = 1.
             stats=stats,
             phase_context=phase_context,
             loading=False,
+            private_scroll=private_scroll,
+            public_scroll=public_scroll,
         )
+        private_scroll = min(private_scroll, layout.get("private_max_scroll", 0))
+        public_scroll = min(public_scroll, layout.get("public_max_scroll", 0))
         pygame.display.flip()
         clock.tick(60)
 
@@ -891,6 +961,8 @@ def _render_frame(
     stats: Dict[str, Dict[str, int]],
     phase_context: Dict[str, Dict[str, object]] | None = None,
     loading: bool = False,
+    private_scroll: int = 0,
+    public_scroll: int = 0,
 ) -> Dict[str, object]:
     screen.fill(WINDOW_BG)
     width, height = screen.get_size()
@@ -970,19 +1042,23 @@ def _render_frame(
     public_rect = pygame.Rect(panel_rect.x + 16, private_rect.bottom + chat_gap, panel_rect.width - 32, public_h)
 
     if started:
-        _draw_chat_panel(
+        layout["private_chat_rect"] = private_rect
+        layout["public_chat_rect"] = public_rect
+        layout["private_max_scroll"] = _draw_chat_panel(
             screen,
             private_rect,
             small_font,
-            private_messages[-10:],
+            private_messages,
             title="Private",
+            scroll_offset=private_scroll,
         )
-        _draw_chat_panel(
+        layout["public_max_scroll"] = _draw_chat_panel(
             screen,
             public_rect,
             small_font,
             negotiation_messages[:negotiation_index],
             title="Public",
+            scroll_offset=public_scroll,
         )
 
     # Event log and legend
@@ -1075,12 +1151,18 @@ def _draw_chat_panel(
     font,
     messages: List[Dict[str, str]],
     title: str,
-):
+    scroll_offset: int = 0,
+) -> int:
     pygame.draw.rect(screen, (18, 18, 22), rect)
     pygame.draw.rect(screen, (60, 60, 70), rect, 1)
     title_surf = font.render(title, True, TEXT_COLOR)
     screen.blit(title_surf, (rect.x + 8, rect.y + 8))
-    y = rect.y + 32
+
+    content_top = rect.y + 32
+    content_height = rect.height - 40
+
+    # Precompute line layout for scrolling.
+    rendered_lines: List[Tuple[str, str, Tuple[int, int, int]]] = []
     for msg in messages:
         speaker = msg.get("speaker", "Agent")
         text = msg.get("text", "")
@@ -1091,14 +1173,28 @@ def _draw_chat_panel(
         if not lines:
             lines = [""]
         for idx, line in enumerate(lines):
-            if y > rect.bottom - 20:
-                return
-            if idx == 0:
+            rendered_lines.append((prefix if idx == 0 else "", line, color))
+
+    total_height = len(rendered_lines) * SMALL_LINE_HEIGHT
+    max_scroll = max(0, total_height - content_height)
+    scroll = max(0, min(scroll_offset, max_scroll))
+
+    prev_clip = screen.get_clip()
+    screen.set_clip(rect.x + 6, content_top, rect.width - 12, content_height)
+    y = content_top - scroll
+    for prefix, line, color in rendered_lines:
+        if y > rect.bottom - 20:
+            break
+        if y >= content_top - SMALL_LINE_HEIGHT:
+            if prefix:
+                prefix_w = font.size(prefix)[0]
                 screen.blit(font.render(prefix, True, color), (rect.x + 8, y))
                 screen.blit(font.render(line, True, (210, 210, 220)), (rect.x + 8 + prefix_w, y))
             else:
-                screen.blit(font.render(line, True, (210, 210, 220)), (rect.x + 8 + prefix_w, y))
-            y += SMALL_LINE_HEIGHT
+                screen.blit(font.render(line, True, (210, 210, 220)), (rect.x + 8, y))
+        y += SMALL_LINE_HEIGHT
+    screen.set_clip(prev_clip)
+    return max_scroll
 
 
 def _draw_event_log(screen, event_log: List[str], font, x: int, y: int):
@@ -1524,7 +1620,7 @@ def _extract_response_text(response: object) -> str:
         output = response.get("output")
         if output:
             return str(output)
-    return str(response) if response else ""
+    return ""
 
 
 def _speaker_color(player_id: str) -> Tuple[int, int, int]:
@@ -1544,14 +1640,15 @@ def _ensure_reasoning(text: str, phase: str) -> str:
     clean = " ".join((text or "").split())
     if clean:
         return clean
-    return f"No response received during {phase}."
+    return f"Waiting on response for {phase}."
 
 
 def _live_prompt(content: str, phase: str) -> str:
     return (
         content
         + "\n\n"
-        + f"Reply with 1-2 concise sentences in plain English describing your {phase} reasoning."
+        + f"Reply with 1-2 concise sentences in plain English describing your {phase} reasoning. "
+        + "Do not call tools. Do not return JSON."
     )
 
 
