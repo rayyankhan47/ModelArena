@@ -120,13 +120,13 @@ def run_demo(seed: str = "demo_1", rounds: int = 15, speed: float = 1.0, fullscr
 
         if (not paused or step_round) and (now - last_tick) >= seconds_per_round:
             actions = _select_random_actions(state)
-        result = resolve_round(state, actions)
-        state = result.next_state
-        for ev in result.events[-6:]:
-            event_log.append(f"R{ev.round}: {ev.kind} {ev.payload}")
-        event_log = event_log[-6:]
-        last_tick = now
-        step_round = False
+            result = resolve_round(state, actions)
+            state = result.next_state
+            for ev in result.events[-6:]:
+                event_log.append(f"R{ev.round}: {ev.kind} {ev.payload}")
+            event_log = event_log[-6:]
+            last_tick = now
+            step_round = False
 
         _render_frame(
             screen,
@@ -155,11 +155,11 @@ def _select_random_actions(state: GameState) -> Dict[str, object]:
 
         tile = state.board[player.pos.y][player.pos.x]
         if tile.type in [TileType.TREASURE_1, TileType.TREASURE_2, TileType.TREASURE_3, TileType.KEY]:
-                actions[player_id] = CollectAction()
-                continue
+            actions[player_id] = CollectAction()
+            continue
         if tile.type == TileType.VAULT and player.keys > 0:
-                actions[player_id] = OpenVaultAction()
-                continue
+            actions[player_id] = OpenVaultAction()
+            continue
         if tile.type == TileType.SCANNER:
             if random.random() < 0.4:
                 actions[player_id] = ScanAction()
