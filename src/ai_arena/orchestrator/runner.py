@@ -61,6 +61,8 @@ class OrchestratorRunner:
         self.threads: Dict[str, str] = {}
         self.shared_assistant_id: Optional[str] = None
         self.shared_thread_id: Optional[str] = None
+        self._search_budget: Dict[str, int] = {}
+        self._last_search_round: Dict[str, int] = {}
 
     def run_match(self, seed: Optional[str] = None, rounds: Optional[int] = None) -> str:
         """Run a full match using Backboard and return match_id."""
@@ -77,12 +79,14 @@ class OrchestratorRunner:
 
         state = generate_initial_state(seed=match_seed, max_rounds=max_rounds)
         deals: List[Any] = []
+        self._init_search_budget()
 
         for round_num in range(max_rounds):
             shared_summary = self._get_shared_summary(round_num)
 
             # Planning phase
             for player_id in PLAYER_IDS:
+                web_search = self._web_search_mode(player_id, state.round)
                 response = self._send_phase_message(
                     state=state,
                     deals=deals,
@@ -91,6 +95,7 @@ class OrchestratorRunner:
                     content=planning_prompt(self._state_summary(state), shared_summary),
                     model_route=self.router.planner_route(),
                     memory="Auto",
+                    web_search=web_search,
                 )
                 citations = self._extract_citations(response.get("content") or "")
                 if citations:
@@ -100,6 +105,18 @@ class OrchestratorRunner:
                         tool_calls=[{
                             "name": "rag_citations",
                             "args": {"citations": sorted(citations)},
+                            "result": {}
+                        }],
+                    )
+                search_query = self._extract_search_query(response.get("content") or "")
+                if web_search == "Auto":
+                    self._mark_search_used(player_id, state.round)
+                    self.logger.log_tool_calls(
+                        round_num=state.round,
+                        player_id=player_id,
+                        tool_calls=[{
+                            "name": "web_search_used",
+                            "args": {"query": search_query or "unspecified"},
                             "result": {}
                         }],
                     )
@@ -344,6 +361,31 @@ class OrchestratorRunner:
                 if tag and (tag.startswith("R") or tag.startswith("S")) and tag[1:].isdigit():
                     citations.add(f"[{tag}]")
         return citations
+
+    def _extract_search_query(self, text: str) -> str:
+        for line in text.splitlines():
+            if line.lower().startswith("searchquery:"):
+                return line.split(":", 1)[1].strip()
+        return ""
+
+    def _init_search_budget(self) -> None:
+        for pid in PLAYER_IDS:
+            self._search_budget[pid] = settings.search_budget_per_agent
+            self._last_search_round[pid] = -9999
+
+    def _web_search_mode(self, player_id: str, round_num: int) -> str:
+        if self._search_budget.get(player_id, 0) <= 0:
+            return "off"
+        last_round = self._last_search_round.get(player_id, -9999)
+        if round_num - last_round < settings.search_cooldown_rounds:
+            return "off"
+        return "Auto"
+
+    def _mark_search_used(self, player_id: str, round_num: int) -> None:
+        if self._search_budget.get(player_id, 0) <= 0:
+            return
+        self._search_budget[player_id] -= 1
+        self._last_search_round[player_id] = round_num
 
     def _deals_snapshot(self, deals: List[Any]) -> str:
         if not deals:
