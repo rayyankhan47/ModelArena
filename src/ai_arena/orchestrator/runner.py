@@ -33,6 +33,7 @@ from .prompts import (
 )
 from .routing import ModelRouter
 from .tools import ToolContext, ToolExecutor, tool_definitions, parse_tool_calls
+from ai_arena.rag.index import upload_corpus_to_assistant
 
 
 PLAYER_IDS = ["P1", "P2", "P3", "P4"]
@@ -173,6 +174,9 @@ class OrchestratorRunner:
         self.shared_assistant_id = shared["assistant_id"]
         self.shared_thread_id = self.client.create_thread(self.shared_assistant_id)["thread_id"]
 
+        # Upload RAG corpus to shared assistant
+        upload_corpus_to_assistant(self.client, self.shared_assistant_id)
+
         # Per-player assistants and threads
         for player_id in PLAYER_IDS:
             assistant = self.client.create_assistant(
@@ -182,6 +186,7 @@ class OrchestratorRunner:
             )
             assistant_id = assistant["assistant_id"]
             thread_id = self.client.create_thread(assistant_id)["thread_id"]
+            upload_corpus_to_assistant(self.client, assistant_id)
             self.assistants[player_id] = assistant_id
             self.threads[player_id] = thread_id
 
