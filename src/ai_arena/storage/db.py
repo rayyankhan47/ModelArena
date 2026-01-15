@@ -118,6 +118,17 @@ class Database:
     def log_tool_calls(self, match_id: str, round_num: int, player_id: str, tool_calls: List[Dict[str, Any]]) -> None:
         """Log tool calls for an agent in a round."""
         with self._get_conn() as conn:
+            # Tool execution can happen in multiple cycles within the same round (e.g., tool -> submit -> more tools).
+            # Our schema keys tool calls by (match_id, round, player_id, tool_idx), so we must keep tool_idx monotonic.
+            row = conn.execute(
+                """
+                SELECT COALESCE(MAX(tool_idx), -1)
+                FROM tool_calls
+                WHERE match_id = ? AND round = ? AND player_id = ?
+                """,
+                (match_id, round_num, player_id),
+            ).fetchone()
+            base_idx = int(row[0]) + 1 if row else 0
             for idx, tool_call in enumerate(tool_calls):
                 conn.execute("""
                     INSERT INTO tool_calls (match_id, round, player_id, tool_idx, tool_name, args_json, result_json)
@@ -126,7 +137,7 @@ class Database:
                     match_id,
                     round_num,
                     player_id,
-                    idx,
+                    base_idx + idx,
                     tool_call.get("name", ""),
                     json.dumps(tool_call.get("args", {})),
                     json.dumps(tool_call.get("result", {}))
