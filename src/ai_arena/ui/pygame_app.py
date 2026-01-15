@@ -343,7 +343,7 @@ def run_live_backboard(
             model_route=model_route,
             memory=memory,
             web_search=web_search,
-            disable_tools=True,
+            disable_tools=False,
         )
         text = _extract_response_text(response).strip()
         if text:
@@ -357,7 +357,7 @@ def run_live_backboard(
             model_route=model_route,
             memory=memory,
             web_search="off",
-            disable_tools=True,
+            disable_tools=False,
         )
         return _extract_response_text(fallback).strip()
 
@@ -494,7 +494,7 @@ def run_live_backboard(
                     content=action_prompt(runner._state_summary(state), shared_summary),
                     model_route=model_route,
                     memory="Readonly",
-                    disable_tools=True,
+                    disable_tools=False,
                 )
                 action = runner._parse_action(action_response)
                 if isinstance(action, NoopAction):
@@ -506,7 +506,7 @@ def run_live_backboard(
                         content=action_prompt(runner._state_summary(state), shared_summary),
                         model_route=model_route,
                         memory="Readonly",
-                        disable_tools=True,
+                        disable_tools=False,
                     )
                     action = runner._parse_action(action_response)
 
@@ -1650,7 +1650,7 @@ def _live_prompt(content: str, phase: str) -> str:
         content
         + "\n\n"
         + f"Reply with 1-2 concise sentences in plain English describing your {phase} reasoning. "
-        + "Do not call tools. Do not return JSON."
+        + "You may call tools if helpful, but your final answer must be plain English (no JSON)."
     )
 
 

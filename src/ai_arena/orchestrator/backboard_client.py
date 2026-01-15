@@ -175,12 +175,36 @@ class BackboardClient:
         stream: bool = False,
     ) -> Dict[str, Any]:
         payload = {"tool_outputs": tool_outputs}
-        return self._request(
-            "POST",
+
+        # Backboard endpoint naming has varied; try a few known variants.
+        candidate_paths = [
             f"/threads/{thread_id}/runs/{run_id}/submit-tool-outputs",
-            params={"stream": "true" if stream else "false"},
-            json_body=payload,
-        )
+            f"/threads/{thread_id}/runs/{run_id}/submit_tool_outputs",
+            f"/threads/{thread_id}/runs/{run_id}/submit-tool-outputs/",
+            f"/threads/{thread_id}/runs/{run_id}/submit_tool_outputs/",
+            f"/runs/{run_id}/submit-tool-outputs",
+            f"/runs/{run_id}/submit_tool_outputs",
+        ]
+
+        last_exc: Optional[Exception] = None
+        for path in candidate_paths:
+            try:
+                return self._request(
+                    "POST",
+                    path,
+                    params={"stream": "true" if stream else "false"},
+                    json_body=payload,
+                )
+            except Exception as exc:  # noqa: BLE001
+                last_exc = exc
+                resp = getattr(exc, "response", None)
+                status = getattr(resp, "status_code", None)
+                # Only fall back on "Not Found" style errors.
+                if status == 404:
+                    continue
+                raise
+
+        raise last_exc  # pragma: no cover
 
     # Documents
     def upload_document_to_thread(self, thread_id: str, file_tuple: tuple) -> Dict[str, Any]:

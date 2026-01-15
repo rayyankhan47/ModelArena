@@ -83,6 +83,18 @@ def tool_definitions() -> List[Dict[str, Any]]:
                 },
             },
         },
+        {
+            "type": "function",
+            "function": {
+                "name": "search_documents",
+                "description": "Search the Grid Heist rulebook/strategy documents for a query and return short snippets.",
+                "parameters": {
+                    "type": "object",
+                    "properties": {"query": {"type": "string"}},
+                    "required": ["query"],
+                },
+            },
+        },
     ]
 
 
@@ -109,7 +121,43 @@ class ToolExecutor:
             return _update_deal(context, args.get("deal_id"), "accepted")
         if tool_name == "reject_deal":
             return _update_deal(context, args.get("deal_id"), "rejected")
+        if tool_name == "search_documents":
+            return _search_documents(args.get("query"))
         return {"error": f"Unknown tool: {tool_name}"}
+
+
+def _search_documents(query: Optional[str]) -> Dict[str, Any]:
+    """Local fallback document search for demo reliability.
+
+    Backboard may emit tool calls like `search_documents` even if it is a built-in capability.
+    We satisfy it locally by searching our markdown corpus and returning short snippets.
+    """
+    if not query:
+        return {"error": "query required"}
+    q = query.lower()
+    try:
+        from pathlib import Path
+
+        base = Path(__file__).resolve().parents[1] / "rag" / "corpus"
+        paths = [base / "rules.md", base / "strategy.md"]
+        hits: List[Dict[str, Any]] = []
+        for path in paths:
+            if not path.exists():
+                continue
+            text = path.read_text(encoding="utf-8", errors="ignore")
+            # Simple line-based search; keep it cheap.
+            for line in text.splitlines():
+                if not line.strip():
+                    continue
+                if q in line.lower():
+                    hits.append({"source": path.name, "snippet": line.strip()[:240]})
+                    if len(hits) >= 6:
+                        break
+            if len(hits) >= 6:
+                break
+        return {"query": query, "results": hits}
+    except Exception as exc:  # noqa: BLE001
+        return {"error": f"search failed: {exc}"}
 
 
 def _public_state(state: GameState) -> Dict[str, Any]:
