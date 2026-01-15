@@ -6,7 +6,7 @@ from dataclasses import dataclass
 from typing import Any, Dict, List, Optional, Tuple
 
 from ai_arena.engine.rules import legal_actions
-from ai_arena.engine.types import GameState
+from ai_arena.engine.types import GameState, Deal
 
 
 def tool_definitions() -> List[Dict[str, Any]]:
@@ -90,7 +90,7 @@ def tool_definitions() -> List[Dict[str, Any]]:
 class ToolContext:
     state: GameState
     player_id: str
-    deals: List[Dict[str, Any]]
+    deals: List[Deal]
 
 
 class ToolExecutor:
@@ -152,13 +152,14 @@ def _propose_deal(context: ToolContext, to_player_id: Optional[str], terms: Opti
     if not to_player_id or not terms:
         return {"error": "to_player_id and terms required"}
     deal_id = str(uuid.uuid4())
-    deal = {
-        "deal_id": deal_id,
-        "from_player": context.player_id,
-        "to_player": to_player_id,
-        "terms": terms,
-        "status": "proposed",
-    }
+    deal = Deal(
+        deal_id=deal_id,
+        from_player=context.player_id,
+        to_player=to_player_id,
+        terms=terms,
+        created_round=context.state.round,
+        status="proposed",
+    )
     context.deals.append(deal)
     return {"deal_id": deal_id, "status": "proposed"}
 
@@ -167,8 +168,8 @@ def _update_deal(context: ToolContext, deal_id: Optional[str], status: str) -> D
     if not deal_id:
         return {"error": "deal_id required"}
     for deal in context.deals:
-        if deal["deal_id"] == deal_id:
-            deal["status"] = status
+        if deal.deal_id == deal_id:
+            deal.status = status
             return {"deal_id": deal_id, "status": status}
     return {"error": "deal not found"}
 

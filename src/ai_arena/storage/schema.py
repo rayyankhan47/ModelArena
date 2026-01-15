@@ -90,6 +90,13 @@ def create_tables(db_path: str) -> None:
 
 def serialize_game_state(state) -> str:
     """Convert GameState to JSON for storage."""
+    def _serialize_deal(deal):
+        if hasattr(deal, "model_dump"):
+            return deal.model_dump()
+        if hasattr(deal, "dict"):
+            return deal.dict()
+        return deal
+
     return json.dumps({
         "round": state.round,
         "max_rounds": state.max_rounds,
@@ -104,7 +111,7 @@ def serialize_game_state(state) -> str:
                 "trapped_for": p.trapped_for
             } for pid, p in state.players.items()
         },
-        "active_deals": [deal.dict() for deal in state.active_deals]
+        "active_deals": [_serialize_deal(deal) for deal in state.active_deals]
     })
 
 

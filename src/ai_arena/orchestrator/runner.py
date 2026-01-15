@@ -75,7 +75,7 @@ class OrchestratorRunner:
         self._setup_assistants_and_threads()
 
         state = generate_initial_state(seed=match_seed, max_rounds=max_rounds)
-        deals: List[Dict[str, Any]] = []
+        deals: List[Any] = []
 
         for round_num in range(max_rounds):
             shared_summary = self._get_shared_summary(round_num)
@@ -108,6 +108,9 @@ class OrchestratorRunner:
                 if message:
                     negotiation_messages.append(f"{player_id}: {message}")
                     self._append_shared_message(f"{player_id} says: {message}")
+
+            # Keep active deals on the state for UI/replay visibility
+            state.active_deals = deals
 
             # Commit phase
             actions: Dict[str, Action] = {}
