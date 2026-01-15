@@ -177,40 +177,6 @@ We will build in this order to keep feedback tight and avoid integration dead-en
 
 ---
 
-### Progress log (we update this as we go)
-
-#### 2026-01-15
-
-- [x] Created `PROJECT-DETAILS.md` (full spec)
-- [x] Created `PROJECT-PLAN.md` (this plan + tracker)
-
-#### 2026-01-15 (continued)
-
-- [x] Completed Milestone A: repo scaffolding
-  - Added requirements.txt with all dependencies
-  - Created config.py with pydantic-settings
-  - Created CLI stub with typer
-  - Set up complete package structure under src/ai_arena/
-  - Updated README.md with installation and usage instructions
-- [x] Committed to GitHub
-
-#### 2026-01-15 (later)
-
-- [x] Completed Milestone B: deterministic game engine core
-  - Added engine types and enums
-  - Implemented seeded board generation and spawn layout
-  - Implemented legal action computation
-  - Implemented round resolution and events
-  - Added engine unit tests
-
-#### 2026-01-15 (even later)
-
-- [x] Completed Milestone C: Pygame UI v1
-  - Added a live demo loop with simple random agents
-  - Implemented full-screen layout and basic rendering
-  - Added scoreboard and event ticker
-  - Added pacing controls (pause, step, speed)
-
 Next up:
 - [ ] Milestone G: Tools (real tool execution + UI)
 

@@ -95,6 +95,10 @@ class MatchReplay:
         """Get agent calls for a specific round and player."""
         return self.db.get_agent_calls(match_id, round_num, player_id)
 
+    def get_tool_calls_for_round(self, match_id: str, round_num: int) -> List[Dict[str, Any]]:
+        """Get tool calls for a specific round across all players."""
+        return self.db.get_tool_calls(match_id, round_num)
+
     def list_recent_matches(self, limit: int = 10) -> List[Dict[str, Any]]:
         """List recent matches."""
         return self.db.list_matches(limit)

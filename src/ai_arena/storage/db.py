@@ -221,6 +221,23 @@ class Database:
                 "response": json.loads(row[4])
             } for row in rows]
 
+    def get_tool_calls(self, match_id: str, round_num: int) -> List[Dict[str, Any]]:
+        """Get tool calls for a specific round across all players."""
+        with self._get_conn() as conn:
+            rows = conn.execute("""
+                SELECT player_id, tool_name, args_json, result_json
+                FROM tool_calls
+                WHERE match_id = ? AND round = ?
+                ORDER BY player_id, tool_idx
+            """, (match_id, round_num)).fetchall()
+
+            return [{
+                "player_id": row[0],
+                "tool_name": row[1],
+                "args": json.loads(row[2]),
+                "result": json.loads(row[3])
+            } for row in rows]
+
     def list_matches(self, limit: int = 10) -> List[Dict[str, Any]]:
         """List recent matches."""
         with self._get_conn() as conn:
