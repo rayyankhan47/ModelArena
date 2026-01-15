@@ -44,7 +44,8 @@ def planning_prompt(state_summary: str, shared_summary: str) -> str:
         "Provide a brief plan and any opponent observations.\n\n"
         f"Shared summary:\n{shared_summary}\n\n"
         f"State:\n{state_summary}\n\n"
-        "Respond in 3-6 bullet points."
+        "Respond in 3-6 bullet points.\n"
+        "Include a final line: Citations: [R#], [S#] or Citations: none."
     )
 
 
