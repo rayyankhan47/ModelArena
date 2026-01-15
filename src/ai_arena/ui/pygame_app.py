@@ -62,10 +62,10 @@ PLAYER_NAMES = {
 }
 
 PLAYER_ASSETS = {
-    "P1": "gpt4.png",
+    "P1": "gpt5.png",
     "P2": "claude.jpeg",
     "P3": "gemini.png",
-    "P4": "gpt3p5.png",
+    "P4": "gpt4.png",
 }
 
 PHASES = [
