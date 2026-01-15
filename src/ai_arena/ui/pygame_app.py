@@ -11,13 +11,17 @@ import pygame
 from ai_arena.engine.generate import generate_initial_state
 from ai_arena.engine.reducer import resolve_round
 from ai_arena.engine.rules import legal_actions
+from ai_arena.storage.logger import MatchReplay
 from ai_arena.engine.types import (
     ActionType,
+    BoardTile,
     CollectAction,
+    Coord,
     GameState,
     MoveAction,
     NoopAction,
     OpenVaultAction,
+    PlayerState,
     ScanAction,
     SetTrapAction,
     StealAction,
@@ -200,10 +204,165 @@ def run_demo(seed: str = "demo_1", rounds: int = 15, speed: float = 1.0, fullscr
             drawer_open=drawer_open,
             player_icons=player_icons,
             stats=stats,
+            phase_context=None,
         )
         pygame.display.flip()
         clock.tick(60)
 
+
+def run_replay_ui(match_id: str, db_path: str = "ai_arena.db", speed: float = 1.0, fullscreen: bool = True):
+    """Replay a Backboard match with phase-by-phase controls and real agent data."""
+    replay = MatchReplay(db_path)
+    match_info = replay.get_match_info(match_id)
+    if not match_info:
+        raise ValueError(f"Match {match_id} not found")
+
+    pygame.init()
+    if fullscreen:
+        screen = pygame.display.set_mode((0, 0), pygame.FULLSCREEN)
+    else:
+        screen = pygame.display.set_mode((1400, 900))
+
+    pygame.display.set_caption(f"AI Arena - Replay {match_id}")
+    clock = pygame.time.Clock()
+    font = pygame.font.SysFont("Arial", 18)
+    small_font = pygame.font.SysFont("Arial", 14)
+    heading_font = pygame.font.SysFont("Arial", 22, bold=True)
+
+    total_rounds = replay.get_round_count(match_id)
+    state = generate_initial_state(seed=match_info["seed"], max_rounds=match_info["max_rounds"])
+    round_index = 0
+    phase_index = 0
+    started = True
+    autoplay = False
+    match_over = False
+    phase_started_at = time.time()
+    phase_step_seconds = max(0.4, PHASE_STEP_SECONDS / max(speed, 0.1))
+    negotiation_step_seconds = max(0.2, NEGOTIATION_STEP_SECONDS / max(speed, 0.1))
+
+    selected_agent = "P1"
+    drawer_open = False
+    player_icons = _load_player_icons()
+    stats = _init_match_stats()
+    event_log: List[str] = []
+    negotiation_messages: List[Dict[str, str]] = []
+    negotiation_index = 0
+    round_data: Dict[str, object] | None = None
+    phase_context: Dict[str, Dict[str, object]] | None = None
+    layout: Dict[str, object] = {}
+
+    def load_round_context(round_num: int) -> None:
+        nonlocal round_data, negotiation_messages, negotiation_index, phase_context
+        if round_num >= total_rounds:
+            round_data = None
+            negotiation_messages = []
+            negotiation_index = 0
+            phase_context = None
+            return
+        round_data = replay.get_round_data(match_id, round_num)
+        agent_calls = {
+            pid: replay.get_agent_calls_for_round(match_id, round_num, pid)
+            for pid in PLAYER_NAMES.keys()
+        }
+        tool_calls = replay.get_tool_calls_for_round(match_id, round_num)
+        memory_summaries = replay.get_memory_summaries_for_round(match_id, round_num)
+        phase_context = _build_phase_context(agent_calls, tool_calls, memory_summaries, round_data or {})
+        negotiation_messages = _build_negotiation_from_calls(agent_calls, round_num)
+        negotiation_index = 0
+
+    def advance_phase() -> None:
+        nonlocal phase_index, negotiation_index, phase_started_at, round_index, state, match_over
+        if match_over:
+            return
+        phase_name = PHASES[phase_index][1]
+        if phase_name == "Negotiation" and negotiation_index < len(negotiation_messages):
+            negotiation_index += 1
+            phase_started_at = time.time()
+            return
+        if phase_name == "Resolve":
+            if round_data and round_data.get("events"):
+                _append_events(round_data["events"], event_log, stats)
+            if round_data and round_data.get("state"):
+                state = _state_from_dict(round_data["state"])
+        if phase_name == "Memory":
+            round_index += 1
+            if round_index >= total_rounds:
+                match_over = True
+                return
+            load_round_context(round_index)
+        phase_index = (phase_index + 1) % len(PHASES)
+        phase_started_at = time.time()
+
+    load_round_context(round_index)
+
+    while True:
+        for event in pygame.event.get():
+            if event.type == pygame.QUIT:
+                pygame.quit()
+                sys.exit(0)
+            if event.type == pygame.KEYDOWN:
+                if event.key == pygame.K_ESCAPE:
+                    pygame.quit()
+                    sys.exit(0)
+            if event.type == pygame.MOUSEBUTTONDOWN and event.button == 1:
+                pos = event.pos
+                if autoplay and match_over:
+                    autoplay = False
+                if layout.get("autoplay_button") and layout["autoplay_button"].collidepoint(pos):
+                    if not match_over:
+                        autoplay = not autoplay
+                        phase_started_at = time.time()
+                if layout.get("next_button") and layout["next_button"].collidepoint(pos):
+                    advance_phase()
+                if layout.get("agent_icons"):
+                    for pid, rect in layout["agent_icons"].items():
+                        if rect.collidepoint(pos):
+                            selected_agent = pid
+                            drawer_open = True
+                            break
+                if drawer_open and layout.get("drawer_rect") and not layout["drawer_rect"].collidepoint(pos):
+                    drawer_open = False
+
+        now = time.time()
+        if autoplay and not match_over:
+            phase_name = PHASES[phase_index][1]
+            if phase_name == "Negotiation":
+                if negotiation_index < len(negotiation_messages):
+                    if now - phase_started_at >= negotiation_step_seconds:
+                        negotiation_index += 1
+                        phase_started_at = now
+                else:
+                    if now - phase_started_at >= phase_step_seconds:
+                        advance_phase()
+            else:
+                if now - phase_started_at >= phase_step_seconds:
+                    advance_phase()
+
+        display_state = state
+        if PHASES[phase_index][1] in ["Resolve", "Memory"] and round_data and round_data.get("state"):
+            display_state = _state_from_dict(round_data["state"])
+
+        layout = _render_frame(
+            screen=screen,
+            state=display_state,
+            event_log=event_log,
+            font=font,
+            small_font=small_font,
+            heading_font=heading_font,
+            started=started,
+            autoplay=autoplay,
+            match_over=match_over,
+            phase_index=phase_index,
+            negotiation_messages=negotiation_messages,
+            negotiation_index=negotiation_index,
+            selected_agent=selected_agent,
+            drawer_open=drawer_open,
+            player_icons=player_icons,
+            stats=stats,
+            phase_context=phase_context,
+        )
+        pygame.display.flip()
+        clock.tick(60)
 
 def _select_random_actions(state: GameState) -> Dict[str, object]:
     """Select varied random actions for demo agents to showcase all game mechanics."""
@@ -343,6 +502,7 @@ def _render_frame(
     drawer_open: bool,
     player_icons: Dict[str, pygame.Surface],
     stats: Dict[str, Dict[str, int]],
+    phase_context: Dict[str, Dict[str, object]] | None = None,
 ) -> Dict[str, object]:
     screen.fill(WINDOW_BG)
     width, height = screen.get_size()
@@ -413,6 +573,7 @@ def _render_frame(
             font,
             negotiation_messages[:negotiation_index],
             stats,
+            phase_context,
         )
         layout["drawer_rect"] = drawer_rect
 
@@ -522,6 +683,7 @@ def _draw_inspector_drawer(
     font,
     negotiation_messages: List[Dict[str, str]],
     stats: Dict[str, Dict[str, int]],
+    phase_context: Dict[str, Dict[str, object]] | None = None,
 ) -> pygame.Rect:
     width, height = screen.get_size()
     drawer_w = min(360, int(width * 0.3))
@@ -542,9 +704,24 @@ def _draw_inspector_drawer(
         "",
     ]
 
-    phase_lines = _phase_details(state, selected_agent, phase_name, negotiation_messages)
+    phase_lines = _phase_details(state, selected_agent, phase_name, negotiation_messages, phase_context)
     lines.extend(phase_lines)
     lines.append("")
+    if phase_context and phase_context.get(selected_agent):
+        ctx = phase_context[selected_agent]
+        models = ctx.get("models")
+        if isinstance(models, dict):
+            model_parts = [f"{k}:{v}" for k, v in models.items() if v]
+            if model_parts:
+                lines.append("Models: " + ", ".join(model_parts))
+        tools = ctx.get("tools")
+        if tools:
+            tool_names = ", ".join(tools[:4])
+            lines.append(f"Tools used: {tool_names}")
+        mem_shared = ctx.get("memory_shared")
+        if mem_shared:
+            lines.append("Shared memory: " + _truncate_text(mem_shared, 90))
+        lines.append("")
     lines.append("Session stats:")
     lines.append(f"Treasure collected: {stats[selected_agent]['treasure']}")
     lines.append(f"Keys collected: {stats[selected_agent]['keys']}")
@@ -656,13 +833,24 @@ def _wrap_text(text: str, font, max_width: int) -> List[str]:
     return lines
 
 
-def _phase_details(state: GameState, player_id: str, phase_name: str, messages: List[Dict[str, str]]) -> List[str]:
+def _phase_details(
+    state: GameState,
+    player_id: str,
+    phase_name: str,
+    messages: List[Dict[str, str]],
+    phase_context: Dict[str, Dict[str, object]] | None,
+) -> List[str]:
+    context = phase_context.get(player_id) if phase_context else None
     if phase_name == "Snapshot":
         return ["Observing the board state and opponent positions."]
     if phase_name == "Planning":
+        if context and context.get("planning"):
+            return ["Planning next move.", _truncate_text(context["planning"], 120)]
         summary = _summarize_legal_actions(state, player_id)
         return ["Planning next move.", f"Legal actions now: {summary}"]
     if phase_name == "Negotiation":
+        if context and context.get("negotiation"):
+            return ["Negotiating with other agents.", _truncate_text(context["negotiation"], 120)]
         last_message = ""
         name = PLAYER_NAMES.get(player_id, player_id)
         for msg in messages:
@@ -672,12 +860,25 @@ def _phase_details(state: GameState, player_id: str, phase_name: str, messages: 
             return ["Negotiating with other agents.", f"Latest message: {last_message}"]
         return ["Negotiating with other agents."]
     if phase_name == "Commit":
+        if context and context.get("commit"):
+            return ["Committing the final action for this round.", _truncate_text(context["commit"], 120)]
         return ["Committing the final action for this round."]
     if phase_name == "Resolve":
+        if context and context.get("resolve"):
+            return ["Resolving actions and updating scores.", context["resolve"]]
         return ["Resolving actions and updating scores."]
     if phase_name == "Memory":
+        if context and context.get("memory_private"):
+            return ["Summarizing this round into memory.", _truncate_text(context["memory_private"], 120)]
         return ["Summarizing this round into memory."]
     return []
+
+
+def _truncate_text(text: str, max_len: int) -> str:
+    clean = " ".join(text.split())
+    if len(clean) <= max_len:
+        return clean
+    return clean[: max_len - 1].rstrip() + "…"
 
 
 def _summarize_legal_actions(state: GameState, player_id: str) -> str:
@@ -762,55 +963,167 @@ def _append_events(events, event_log: List[str], stats: Dict[str, Dict[str, int]
     event_log[:] = event_log[-7:]
 
 
+def _state_from_dict(state_dict: Dict[str, object]) -> GameState:
+    try:
+        return GameState.model_validate(state_dict)
+    except Exception:
+        # Fallback for older pydantic environments
+        board = [
+            [BoardTile(type=TileType(tile["type"])) for tile in row]
+            for row in state_dict.get("board", [])
+        ]
+        players = {}
+        for pid, pdata in (state_dict.get("players") or {}).items():
+            pos = pdata.get("pos") or {}
+            players[pid] = PlayerState(
+                player_id=pdata.get("player_id", pid),
+                pos=Coord(x=pos.get("x", 0), y=pos.get("y", 0)),
+                score=pdata.get("score", 0),
+                keys=pdata.get("keys", 0),
+                trapped_for=pdata.get("trapped_for", 0),
+            )
+        return GameState(
+            round=state_dict.get("round", 0),
+            max_rounds=state_dict.get("max_rounds", 15),
+            seed=state_dict.get("seed", "replay"),
+            board=board,
+            players=players,
+            active_deals=state_dict.get("active_deals") or [],
+        )
+
+
+def _build_phase_context(
+    agent_calls: Dict[str, List[Dict[str, object]]],
+    tool_calls: List[Dict[str, object]],
+    memory_summaries: List[Dict[str, object]],
+    round_data: Dict[str, object],
+) -> Dict[str, Dict[str, object]]:
+    context: Dict[str, Dict[str, object]] = {pid: {"models": {}, "tools": []} for pid in PLAYER_NAMES.keys()}
+
+    for pid, calls in agent_calls.items():
+        for call in calls:
+            phase = call.get("phase", "")
+            model = call.get("model", "")
+            if phase and model:
+                context[pid]["models"][phase] = model
+            content = _extract_response_text(call.get("response", {}))
+            if phase.startswith("plan"):
+                context[pid]["planning"] = content
+            elif phase.startswith("negotiate"):
+                context[pid]["negotiation"] = content
+            elif phase.startswith("commit"):
+                context[pid]["commit"] = content
+
+    for summary in memory_summaries:
+        pid = summary.get("player_id")
+        if pid in context:
+            context[pid]["memory_private"] = summary.get("private_summary", "")
+            context[pid]["memory_shared"] = summary.get("shared_summary", "")
+
+    for call in tool_calls:
+        pid = call.get("player_id")
+        name = call.get("tool_name", "")
+        if pid in context and name:
+            context[pid]["tools"].append(name)
+
+    rewards = round_data.get("rewards", {}) if round_data else {}
+    if isinstance(rewards, dict):
+        for pid in context:
+            if pid in rewards:
+                context[pid]["resolve"] = f"Reward delta: {rewards.get(pid, 0)}"
+
+    return context
+
+
+def _build_negotiation_from_calls(
+    agent_calls: Dict[str, List[Dict[str, object]]],
+    round_num: int,
+) -> List[Dict[str, str]]:
+    messages = [{"speaker": "Moderator", "text": f"Round {round_num + 1} negotiation begins."}]
+    for pid in PLAYER_NAMES.keys():
+        calls = agent_calls.get(pid, [])
+        text = ""
+        for call in calls:
+            phase = call.get("phase", "")
+            if phase.startswith("negotiate"):
+                text = _extract_response_text(call.get("response", {}))
+                break
+        if text:
+            messages.append({"speaker": PLAYER_NAMES.get(pid, pid), "text": text})
+    return messages
+
+
+def _extract_response_text(response: object) -> str:
+    if isinstance(response, dict):
+        content = response.get("content")
+        if isinstance(content, list):
+            return " ".join(str(item) for item in content)
+        if content:
+            return str(content)
+        message = response.get("message") or response.get("output")
+        if message:
+            return str(message)
+    return str(response) if response else ""
+def _event_value(ev, key: str, default=None):
+    if isinstance(ev, dict):
+        return ev.get(key, default)
+    return getattr(ev, key, default)
+
+
 def _format_event(ev) -> str:
-    player_id = ev.payload.get("player_id", "?")
+    payload = _event_value(ev, "payload", {}) or {}
+    player_id = payload.get("player_id", "?")
     player_name = PLAYER_NAMES.get(player_id, player_id)
-    if ev.kind == "collect_treasure":
-        value = ev.payload.get("value", 0)
-        return f"R{ev.round}: {player_name} collected treasure (+{value})"
-    if ev.kind == "collect_key":
-        return f"R{ev.round}: {player_name} collected a key"
-    if ev.kind == "open_vault":
-        return f"R{ev.round}: {player_name} opened a vault (+8)"
-    if ev.kind == "scan_used":
-        return f"R{ev.round}: {player_name} used a scanner (+1)"
-    if ev.kind == "trap_set":
-        return f"R{ev.round}: {player_name} set a trap"
-    if ev.kind == "trap_triggered":
-        return f"R{ev.round}: {player_name} triggered a trap"
-    if ev.kind == "steal_key":
-        target = PLAYER_NAMES.get(ev.payload.get("target", "?"), ev.payload.get("target", "?"))
-        return f"R{ev.round}: {player_name} stole a key from {target}"
-    if ev.kind == "steal_point":
-        target = PLAYER_NAMES.get(ev.payload.get("target", "?"), ev.payload.get("target", "?"))
-        return f"R{ev.round}: {player_name} stole 1 point from {target}"
-    if ev.kind == "steal_fail":
-        target = PLAYER_NAMES.get(ev.payload.get("target", "?"), ev.payload.get("target", "?"))
-        return f"R{ev.round}: {player_name} failed to steal from {target}"
-    if ev.kind == "collision_blocked":
-        return f"R{ev.round}: {player_name} was blocked by a collision"
-    if ev.kind == "move_blocked":
-        return f"R{ev.round}: {player_name} move blocked (occupied)"
-    if ev.kind == "illegal_action":
-        return f"R{ev.round}: {player_name} attempted an illegal action"
-    if ev.kind == "trapped_noop":
-        return f"R{ev.round}: {player_name} is trapped"
+    kind = _event_value(ev, "kind", "")
+    round_num = _event_value(ev, "round", "?")
+    if kind == "collect_treasure":
+        value = payload.get("value", 0)
+        return f"R{round_num}: {player_name} collected treasure (+{value})"
+    if kind == "collect_key":
+        return f"R{round_num}: {player_name} collected a key"
+    if kind == "open_vault":
+        return f"R{round_num}: {player_name} opened a vault (+8)"
+    if kind == "scan_used":
+        return f"R{round_num}: {player_name} used a scanner (+1)"
+    if kind == "trap_set":
+        return f"R{round_num}: {player_name} set a trap"
+    if kind == "trap_triggered":
+        return f"R{round_num}: {player_name} triggered a trap"
+    if kind == "steal_key":
+        target = PLAYER_NAMES.get(payload.get("target", "?"), payload.get("target", "?"))
+        return f"R{round_num}: {player_name} stole a key from {target}"
+    if kind == "steal_point":
+        target = PLAYER_NAMES.get(payload.get("target", "?"), payload.get("target", "?"))
+        return f"R{round_num}: {player_name} stole 1 point from {target}"
+    if kind == "steal_fail":
+        target = PLAYER_NAMES.get(payload.get("target", "?"), payload.get("target", "?"))
+        return f"R{round_num}: {player_name} failed to steal from {target}"
+    if kind == "collision_blocked":
+        return f"R{round_num}: {player_name} was blocked by a collision"
+    if kind == "move_blocked":
+        return f"R{round_num}: {player_name} move blocked (occupied)"
+    if kind == "illegal_action":
+        return f"R{round_num}: {player_name} attempted an illegal action"
+    if kind == "trapped_noop":
+        return f"R{round_num}: {player_name} is trapped"
     return ""
 
 
 def _update_stats(ev, stats: Dict[str, Dict[str, int]]) -> None:
-    player_id = ev.payload.get("player_id")
+    payload = _event_value(ev, "payload", {}) or {}
+    player_id = payload.get("player_id")
+    kind = _event_value(ev, "kind", "")
     if player_id not in stats:
         return
-    if ev.kind == "collect_treasure":
+    if kind == "collect_treasure":
         stats[player_id]["treasure"] += 1
-    if ev.kind == "collect_key":
+    if kind == "collect_key":
         stats[player_id]["keys"] += 1
-    if ev.kind == "open_vault":
+    if kind == "open_vault":
         stats[player_id]["vaults"] += 1
-    if ev.kind == "scan_used":
+    if kind == "scan_used":
         stats[player_id]["scans"] += 1
-    if ev.kind == "trap_set":
+    if kind == "trap_set":
         stats[player_id]["traps"] += 1
-    if ev.kind in ["steal_key", "steal_point"]:
+    if kind in ["steal_key", "steal_point"]:
         stats[player_id]["steals"] += 1

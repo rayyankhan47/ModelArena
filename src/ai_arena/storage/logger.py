@@ -99,6 +99,10 @@ class MatchReplay:
         """Get tool calls for a specific round across all players."""
         return self.db.get_tool_calls(match_id, round_num)
 
+    def get_memory_summaries_for_round(self, match_id: str, round_num: int) -> List[Dict[str, Any]]:
+        """Get memory summaries for a specific round across all players."""
+        return self.db.get_memory_summaries(match_id, round_num)
+
     def list_recent_matches(self, limit: int = 10) -> List[Dict[str, Any]]:
         """List recent matches."""
         return self.db.list_matches(limit)

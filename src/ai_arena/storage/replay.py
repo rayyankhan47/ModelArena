@@ -4,9 +4,8 @@ import time
 from typing import Dict, Any, List, Optional
 
 from .logger import MatchReplay
-from ..engine.generate import generate_initial_state
 from ..engine.types import GameState
-from ..ui.pygame_app import run_demo
+from ..ui.pygame_app import run_replay_ui
 
 
 def replay_match(match_id: str, speed: float = 1.0, db_path: str = "ai_arena.db") -> None:
@@ -26,21 +25,8 @@ def replay_match(match_id: str, speed: float = 1.0, db_path: str = "ai_arena.db"
 
     print(f"Replaying match {match_id} (seed: {match_info['seed']})")
 
-    # Generate initial state for replay
-    initial_state = generate_initial_state(
-        seed=match_info["seed"],
-        max_rounds=match_info["max_rounds"]
-    )
-
-    # Get all round data
-    round_count = replay.get_round_count(match_id)
-    if round_count == 0:
-        raise ValueError(f"No rounds found for match {match_id}")
-
-    print(f"Match has {round_count} rounds")
-
-    # Run replay with custom round generator
-    run_replay_loop(match_id, initial_state, round_count, speed, replay)
+    # Run replay with the latest UI
+    run_replay_ui(match_id=match_id, db_path=db_path, speed=speed, fullscreen=True)
 
 
 def run_replay_loop(match_id: str, initial_state: GameState, round_count: int, speed: float, replay: MatchReplay):

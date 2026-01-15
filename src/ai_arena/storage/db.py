@@ -238,6 +238,22 @@ class Database:
                 "result": json.loads(row[3])
             } for row in rows]
 
+    def get_memory_summaries(self, match_id: str, round_num: int) -> List[Dict[str, Any]]:
+        """Get memory summaries for a specific round across all players."""
+        with self._get_conn() as conn:
+            rows = conn.execute("""
+                SELECT player_id, private_summary, shared_summary
+                FROM memory_summaries
+                WHERE match_id = ? AND round = ?
+                ORDER BY player_id
+            """, (match_id, round_num)).fetchall()
+
+            return [{
+                "player_id": row[0],
+                "private_summary": row[1],
+                "shared_summary": row[2],
+            } for row in rows]
+
     def list_matches(self, limit: int = 10) -> List[Dict[str, Any]]:
         """List recent matches."""
         with self._get_conn() as conn:
