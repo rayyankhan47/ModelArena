@@ -62,9 +62,9 @@ Acceptance criteria:
 
 #### Milestone D — SQLite logging + replay
 
-- [ ] Implement `storage/schema.py` and `storage/db.py`
-- [ ] Log match config, per-round state snapshots, events, committed actions, rewards
-- [ ] Implement `storage/replay.py` to replay a completed match without Backboard
+- [x] Implement `storage/schema.py` and `storage/db.py`
+- [x] Log match config, per-round state snapshots, events, committed actions, rewards
+- [x] Implement `storage/replay.py` to replay a completed match without Backboard
 
 Acceptance criteria:
 - A recorded match can be replayed deterministically in the UI.
@@ -212,8 +212,5 @@ We will build in this order to keep feedback tight and avoid integration dead-en
   - Added pacing controls (pause, step, speed)
 
 Next up:
-- [ ] Milestone D: SQLite logging + replay
-
-Next up:
-- [ ] Milestone B: implement deterministic game engine
+- [ ] Milestone E: Backboard client wrapper
 

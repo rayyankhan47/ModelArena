@@ -33,8 +33,12 @@ def replay(
 ):
     """Replay a previously recorded match."""
     console.print(f"[bold blue]AI Arena[/bold blue] - Replaying match {match_id}...")
-    console.print("This is a stub - replay system not yet implemented.")
-    # TODO: Implement replay runner
+    try:
+        from ai_arena.storage.replay import replay_match
+        replay_match(match_id, speed)
+    except ValueError as e:
+        console.print(f"[red]Error:[/red] {e}")
+        raise typer.Exit(1)
 
 
 @app.callback()
