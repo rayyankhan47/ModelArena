@@ -1,7 +1,7 @@
-"""Model routing for planner/actor calls."""
+"""Model routing for per-player models."""
 
 from dataclasses import dataclass
-from typing import Optional
+from typing import Dict, Optional
 
 from ai_arena.config import settings
 
@@ -13,20 +13,16 @@ class ModelRoute:
 
 
 class ModelRouter:
-    """Routes planner vs actor models per message."""
+    """Routes models per player."""
 
-    def __init__(
-        self,
-        planner_model: str = settings.planner_model,
-        actor_model: str = settings.actor_model,
-        planner_provider: Optional[str] = settings.planner_provider or None,
-        actor_provider: Optional[str] = settings.actor_provider or None,
-    ):
-        self.planner = ModelRoute(provider=planner_provider, model=planner_model)
-        self.actor = ModelRoute(provider=actor_provider, model=actor_model)
+    def __init__(self):
+        self.player_models: Dict[str, ModelRoute] = {
+            "P1": ModelRoute(provider=settings.p1_provider or None, model=settings.p1_model),
+            "P2": ModelRoute(provider=settings.p2_provider or None, model=settings.p2_model),
+            "P3": ModelRoute(provider=settings.p3_provider or None, model=settings.p3_model),
+            "P4": ModelRoute(provider=settings.p4_provider or None, model=settings.p4_model),
+        }
 
-    def planner_route(self) -> ModelRoute:
-        return self.planner
-
-    def actor_route(self) -> ModelRoute:
-        return self.actor
+    def get_player_model(self, player_id: str) -> ModelRoute:
+        """Get the model route for a specific player."""
+        return self.player_models[player_id]

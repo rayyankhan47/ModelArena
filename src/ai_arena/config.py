@@ -21,11 +21,15 @@ class Settings(BaseSettings):
     ui_fullscreen: bool = True
     ui_default_speed: float = 1.0
 
-    # Backboard Model Routing
-    planner_model: str = "gpt-4"
-    actor_model: str = "gpt-3.5-turbo"
-    planner_provider: str = ""
-    actor_provider: str = ""
+    # Backboard Model Routing (per-player models)
+    p1_model: str = "gpt-4"
+    p1_provider: str = "openai"
+    p2_model: str = "claude-3-5-sonnet"
+    p2_provider: str = "anthropic"
+    p3_model: str = "gemini-1.5-pro"
+    p3_provider: str = "google"
+    p4_model: str = "gpt-3.5-turbo"
+    p4_provider: str = "openai"
 
     # Search Rate Limiting
     enable_web_search: bool = False

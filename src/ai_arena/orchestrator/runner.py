@@ -94,7 +94,7 @@ class OrchestratorRunner:
                     player_id=player_id,
                     phase="plan",
                     content=planning_prompt(self._state_summary(state), shared_summary),
-                    model_route=self.router.planner_route(),
+                    model_route=self.router.get_player_model(player_id),
                     memory="Auto",
                     web_search=web_search,
                 )
@@ -131,7 +131,7 @@ class OrchestratorRunner:
                     player_id=player_id,
                     phase="negotiate",
                     content=negotiation_prompt(self._state_summary(state), shared_summary),
-                    model_route=self.router.planner_route(),
+                    model_route=self.router.get_player_model(player_id),
                     memory="Auto",
                 )
                 message = (response.get("content") or "").strip()
@@ -157,7 +157,7 @@ class OrchestratorRunner:
                     player_id=player_id,
                     phase="commit",
                     content=action_prompt(self._state_summary(state), shared_summary),
-                    model_route=self.router.actor_route(),
+                    model_route=self.router.get_player_model(player_id),
                     memory="Readonly",
                 )
                 action = self._parse_action(response)
@@ -169,7 +169,7 @@ class OrchestratorRunner:
                         player_id=player_id,
                         phase="commit_retry",
                         content=action_prompt(self._state_summary(state), shared_summary),
-                        model_route=self.router.planner_route(),
+                        model_route=self.router.get_player_model(player_id),
                         memory="Readonly",
                     )
                     action = self._parse_action(response)

@@ -13,8 +13,46 @@ Multi-agent competitive LLM reasoning using Backboard API.
 
 ```bash
 pip install -r requirements.txt
-cp .env.example .env
-# Edit .env with your Backboard API key
+```
+
+### Configuration
+
+Create a `.env` file in the project root with your Backboard API key and settings:
+
+```env
+# Backboard API Configuration
+# Get your API key from https://app.backboard.io
+BACKBOARD_API_KEY=Enter Your API Key Here
+
+# Backboard API settings (usually don't need to change)
+BACKBOARD_BASE_URL=https://app.backboard.io/api
+BACKBOARD_TIMEOUT=30
+
+# Match Configuration
+DEFAULT_MATCH_ROUNDS=15
+DEFAULT_MATCH_SEED=demo_1
+
+# UI Configuration
+UI_FULLSCREEN=true
+UI_DEFAULT_SPEED=1.0
+
+# Backboard Model Routing (4 different models for demo)
+P1_MODEL=gpt-4
+P1_PROVIDER=openai
+P2_MODEL=claude-3-5-sonnet
+P2_PROVIDER=anthropic
+P3_MODEL=gemini-1.5-pro
+P3_PROVIDER=google
+P4_MODEL=gpt-3.5-turbo
+P4_PROVIDER=openai
+
+# Web Search Configuration (set to true to enable)
+ENABLE_WEB_SEARCH=false
+SEARCH_BUDGET_PER_AGENT=1
+SEARCH_COOLDOWN_ROUNDS=3
+
+# Safety limits
+MAX_LLM_CALLS_PER_MATCH=250
 ```
 
 ### Running a Match
