@@ -37,6 +37,13 @@ BOARD_SIZE = 9
 WINDOW_BG = (18, 18, 22)
 GRID_COLOR = (40, 40, 48)
 TEXT_COLOR = (230, 230, 240)
+
+FONT_SIZE = 20
+SMALL_FONT_SIZE = 16
+HEADING_FONT_SIZE = 26
+BUTTON_FONT_SIZE = 16
+LINE_HEIGHT = 20
+SMALL_LINE_HEIGHT = 20
 TILE_COLORS = {
     TileType.EMPTY: (30, 30, 36),
     TileType.TREASURE_1: (64, 160, 96),
@@ -92,9 +99,9 @@ def run_demo(seed: str = "demo_1", rounds: int = 15, speed: float = 1.0, fullscr
 
     pygame.display.set_caption("AI Arena - Grid Heist")
     clock = pygame.time.Clock()
-    font = pygame.font.SysFont("Arial", 18)
-    small_font = pygame.font.SysFont("Arial", 14)
-    heading_font = pygame.font.SysFont("Arial", 22, bold=True)
+    font = pygame.font.SysFont("Arial", FONT_SIZE)
+    small_font = pygame.font.SysFont("Arial", SMALL_FONT_SIZE)
+    heading_font = pygame.font.SysFont("Arial", HEADING_FONT_SIZE, bold=True)
 
     state = generate_initial_state(seed=seed, max_rounds=rounds)
     event_log: List[str] = []
@@ -231,9 +238,9 @@ def run_live_backboard(
 
     pygame.display.set_caption("AI Arena - Grid Heist (Live)")
     clock = pygame.time.Clock()
-    font = pygame.font.SysFont("Arial", 18)
-    small_font = pygame.font.SysFont("Arial", 14)
-    heading_font = pygame.font.SysFont("Arial", 22, bold=True)
+    font = pygame.font.SysFont("Arial", FONT_SIZE)
+    small_font = pygame.font.SysFont("Arial", SMALL_FONT_SIZE)
+    heading_font = pygame.font.SysFont("Arial", HEADING_FONT_SIZE, bold=True)
 
     match_seed = seed or settings.default_match_seed
     max_rounds = rounds or settings.default_match_rounds
@@ -481,9 +488,9 @@ def run_replay_ui(match_id: str, db_path: str = "ai_arena.db", speed: float = 1.
 
     pygame.display.set_caption(f"AI Arena - Replay {match_id}")
     clock = pygame.time.Clock()
-    font = pygame.font.SysFont("Arial", 18)
-    small_font = pygame.font.SysFont("Arial", 14)
-    heading_font = pygame.font.SysFont("Arial", 22, bold=True)
+    font = pygame.font.SysFont("Arial", FONT_SIZE)
+    small_font = pygame.font.SysFont("Arial", SMALL_FONT_SIZE)
+    heading_font = pygame.font.SysFont("Arial", HEADING_FONT_SIZE, bold=True)
 
     total_rounds = replay.get_round_count(match_id)
     state = generate_initial_state(seed=match_info["seed"], max_rounds=match_info["max_rounds"])
@@ -765,7 +772,7 @@ def _render_frame(
     layout: Dict[str, object] = {"agent_icons": {}}
 
     margin = 24
-    header_h = 70
+    header_h = 82
     board_size_px = min(int(width * 0.55), int(height * 0.65))
     board_x = margin
     board_y = header_h + 20
@@ -830,7 +837,7 @@ def _render_frame(
         )
 
     # Event log and legend
-    _draw_event_log(screen, event_log, small_font, board_x, board_y + board_size_px + 18)
+    _draw_event_log(screen, event_log, small_font, board_x, board_y + board_size_px + 24)
     _draw_legend(screen, small_font, board_x, height - margin - 40)
 
     if drawer_open:
@@ -910,7 +917,7 @@ def _draw_scoreboard(screen, state: GameState, panel_rect: pygame.Rect, font, sm
             screen.blit(scaled, (panel_rect.x + 16, y))
         label = f"{name}  ·  {player.score} pts  ·  {player.keys} keys"
         screen.blit(small_font.render(label, True, TEXT_COLOR), (panel_rect.x + 48, y + 4))
-        y += 30
+        y += 34
 
 
 def _draw_chat_panel(screen, panel_rect: pygame.Rect, font, messages: List[Dict[str, str]]):
@@ -928,7 +935,7 @@ def _draw_chat_panel(screen, panel_rect: pygame.Rect, font, messages: List[Dict[
             if y > chat_rect.bottom - 20:
                 break
             screen.blit(font.render(line, True, (210, 210, 220)), (chat_rect.x + 8, y))
-            y += 18
+            y += SMALL_LINE_HEIGHT
 
 
 def _draw_event_log(screen, event_log: List[str], font, x: int, y: int):
@@ -936,7 +943,7 @@ def _draw_event_log(screen, event_log: List[str], font, x: int, y: int):
     screen.blit(title, (x, y))
     for idx, line in enumerate(event_log[-7:]):
         color = _event_color(line)
-        screen.blit(font.render(line, True, color), (x, y + 20 + idx * 18))
+        screen.blit(font.render(line, True, color), (x, y + 22 + idx * SMALL_LINE_HEIGHT))
 
 
 def _draw_legend(screen, font, x: int, y: int):
@@ -1008,10 +1015,10 @@ def _draw_lines(screen, lines: List[str], x: int, y: int, font):
     offset = 0
     for line in lines:
         if line == "":
-            offset += 8
+            offset += 10
             continue
         screen.blit(font.render(line, True, TEXT_COLOR), (x, y + offset))
-        offset += 18
+        offset += SMALL_LINE_HEIGHT
 
 
 def _draw_button(
@@ -1029,7 +1036,7 @@ def _draw_button(
         bg = (30, 30, 38)
     pygame.draw.rect(screen, bg, rect, border_radius=8)
     pygame.draw.rect(screen, (90, 90, 100), rect, 1, border_radius=8)
-    font = pygame.font.SysFont("Arial", 15)
+    font = pygame.font.SysFont("Arial", BUTTON_FONT_SIZE)
     text_color = (230, 230, 240) if enabled else (120, 120, 130)
     label_surf = font.render(label, True, text_color)
     label_rect = label_surf.get_rect(center=rect.center)
@@ -1060,7 +1067,7 @@ def _draw_welcome_overlay(screen, heading_font, font, small_font, mouse_pos) -> 
     y = panel_rect.y + 70
     for line in lines:
         screen.blit(small_font.render(line, True, (200, 200, 210)), (panel_rect.x + 24, y))
-        y += 18
+        y += SMALL_LINE_HEIGHT
 
     play_rect = pygame.Rect(panel_rect.x + 24, panel_rect.bottom - 68, 200, 44)
     _draw_button(screen, play_rect, "Play", enabled=True, hovered=play_rect.collidepoint(mouse_pos))
@@ -1092,7 +1099,7 @@ def _draw_end_overlay(screen, heading_font, font, small_font, state: GameState, 
             f"{stats[player_id]['treasure']} treasure, {stats[player_id]['steals']} steals"
         )
         screen.blit(small_font.render(line, True, (210, 210, 220)), (panel_rect.x + 24, y))
-        y += 22
+        y += SMALL_LINE_HEIGHT + 2
 
 
 def _wrap_text(text: str, font, max_width: int) -> List[str]:
