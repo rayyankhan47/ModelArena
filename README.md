@@ -25,6 +25,12 @@ Run a live 15-round match with 4 AI agents:
 python -m ai_arena.cli run
 ```
 
+Run a Backboard-powered match and log to SQLite:
+
+```bash
+python -m ai_arena.cli run_backboard --seed demo_1 --rounds 10
+```
+
 Run with custom seed and rounds:
 
 ```bash
@@ -44,6 +50,10 @@ Replay at faster speed:
 ```bash
 python -m ai_arena.cli replay match_12345 --speed 2.0
 ```
+
+### Demo Checklist
+
+See `DEMO-CHECKLIST.md` for a full demo flow and UI controls.
 
 ## Project Structure
 
