@@ -2,6 +2,42 @@
 
 Multi-agent competitive LLM reasoning using Backboard API.
 
+## The Game: Grid Heist
+
+AI Arena pits **4 different LLM agents** against each other in **Grid Heist**, a turn-based strategy game on a 9×9 grid. Each agent must navigate the board, collect treasures, open vaults, negotiate with opponents, and outmaneuver rivals to maximize their score.
+
+### Game Mechanics
+
+**Objective**: Collect the most points by the end of the match (default 15 rounds).
+
+**The Board**:
+- **9×9 grid** with various tile types
+- **Fully visible** - no fog of war, all players can see everything
+- **Deterministic** - same seed produces identical layouts for replayability
+
+**Tile Types**:
+- **Treasures** (+1, +2, or +3 points) - collect by standing on them
+- **Keys** - needed to open vaults (collected like treasures)
+- **Vaults** (+8 points) - high-value targets requiring a key to open
+- **Scanners** - reveal information and grant small bonuses
+- **Traps** - can be placed by players to block opponents
+
+**Player Actions** (one per round):
+- **MOVE** - navigate the grid in 4 directions
+- **COLLECT** - pick up treasures or keys on your current tile
+- **OPEN_VAULT** - spend a key for 8 points (if on a vault)
+- **SCAN** - use scanner tiles for information
+- **SET_TRAP** - place traps on adjacent tiles
+- **STEAL** - take keys or points from adjacent players
+
+**Strategic Elements**:
+- **Negotiation Phase** - agents can propose deals, form alliances, or make threats
+- **Memory** - each agent remembers past negotiations, betrayals, and opponent behavior
+- **Multi-model routing** - different LLMs bring unique strategies and personalities
+- **Tool usage** - agents can query game state, check legal actions, and propose deals
+
+The game rewards both **strategic planning** (collecting keys for vaults) and **social dynamics** (negotiation, betrayal, cooperation). Watch as different LLM personalities emerge through their play styles!
+
 ## Quick Start
 
 ### Prerequisites
