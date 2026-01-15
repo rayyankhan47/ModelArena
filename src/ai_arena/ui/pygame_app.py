@@ -120,6 +120,7 @@ def run_demo(seed: str = "demo_1", rounds: int = 15, speed: float = 1.0, fullscr
     phase_step_seconds = max(0.4, PHASE_STEP_SECONDS / max(speed, 0.1))
     negotiation_step_seconds = max(0.2, NEGOTIATION_STEP_SECONDS / max(speed, 0.1))
     layout: Dict[str, object] = {}
+    loading = False
 
     def enter_phase(new_index: int) -> None:
         nonlocal negotiation_messages, negotiation_index, pending_actions, state, match_over, phase_started_at
@@ -216,6 +217,7 @@ def run_demo(seed: str = "demo_1", rounds: int = 15, speed: float = 1.0, fullscr
             player_icons=player_icons,
             stats=stats,
             phase_context=None,
+            loading=False,
         )
         pygame.display.flip()
         clock.tick(60)
@@ -281,6 +283,7 @@ def run_live_backboard(
         pid: {"models": {}, "tools": []} for pid in PLAYER_NAMES.keys()
     }
     layout: Dict[str, object] = {}
+    loading = False
 
     phase_step_seconds = max(0.4, PHASE_STEP_SECONDS / max(speed, 0.1))
     negotiation_step_seconds = max(0.2, NEGOTIATION_STEP_SECONDS / max(speed, 0.1))
@@ -295,8 +298,31 @@ def run_live_backboard(
     def enter_phase(new_index: int) -> None:
         nonlocal negotiation_messages, negotiation_index, pending_actions, shared_summary, state, match_over
         nonlocal last_actions, last_rewards, last_events
+        nonlocal loading
         phase_name = PHASES[new_index][1]
         if phase_name == "Planning":
+            loading = True
+            layout = _render_frame(
+                screen=screen,
+                state=state,
+                event_log=event_log,
+                font=font,
+                small_font=small_font,
+                heading_font=heading_font,
+                started=started,
+                autoplay=autoplay,
+                match_over=match_over,
+                phase_index=phase_index,
+                negotiation_messages=negotiation_messages,
+                negotiation_index=negotiation_index,
+                selected_agent=selected_agent,
+                drawer_open=drawer_open,
+                player_icons=player_icons,
+                stats=stats,
+                phase_context=phase_context,
+                loading=loading,
+            )
+            pygame.display.flip()
             shared_summary = runner._get_shared_summary(state.round)
             for player_id in PLAYER_IDS:
                 model_route = runner.router.get_player_model(player_id)
@@ -316,7 +342,30 @@ def run_live_backboard(
                 tool_calls = parse_tool_calls(response)
                 if tool_calls:
                     phase_context[player_id]["tools"].extend([c["name"] for c in tool_calls if c.get("name")])
+            loading = False
         if phase_name == "Negotiation":
+            loading = True
+            layout = _render_frame(
+                screen=screen,
+                state=state,
+                event_log=event_log,
+                font=font,
+                small_font=small_font,
+                heading_font=heading_font,
+                started=started,
+                autoplay=autoplay,
+                match_over=match_over,
+                phase_index=phase_index,
+                negotiation_messages=negotiation_messages,
+                negotiation_index=negotiation_index,
+                selected_agent=selected_agent,
+                drawer_open=drawer_open,
+                player_icons=player_icons,
+                stats=stats,
+                phase_context=phase_context,
+                loading=loading,
+            )
+            pygame.display.flip()
             negotiation_messages = [{"speaker": "Moderator", "text": f"Round {state.round + 1} negotiation begins."}]
             for player_id in PLAYER_IDS:
                 model_route = runner.router.get_player_model(player_id)
@@ -336,7 +385,30 @@ def run_live_backboard(
                     negotiation_messages.append({"speaker": PLAYER_NAMES.get(player_id, player_id), "text": message})
                     runner._append_shared_message(f"{player_id} says: {message}")
             negotiation_index = 0
+            loading = False
         if phase_name == "Commit":
+            loading = True
+            layout = _render_frame(
+                screen=screen,
+                state=state,
+                event_log=event_log,
+                font=font,
+                small_font=small_font,
+                heading_font=heading_font,
+                started=started,
+                autoplay=autoplay,
+                match_over=match_over,
+                phase_index=phase_index,
+                negotiation_messages=negotiation_messages,
+                negotiation_index=negotiation_index,
+                selected_agent=selected_agent,
+                drawer_open=drawer_open,
+                player_icons=player_icons,
+                stats=stats,
+                phase_context=phase_context,
+                loading=loading,
+            )
+            pygame.display.flip()
             pending_actions = {}
             for player_id in PLAYER_IDS:
                 model_route = runner.router.get_player_model(player_id)
@@ -367,6 +439,7 @@ def run_live_backboard(
                     phase_context[player_id]["commit"] = _extract_response_text(response)
                     action = runner._parse_action(response)
                 pending_actions[player_id] = action
+            loading = False
         if phase_name == "Resolve":
             if pending_actions is None:
                 pending_actions = _select_random_actions(state)
@@ -472,6 +545,7 @@ def run_live_backboard(
             player_icons=player_icons,
             stats=stats,
             phase_context=phase_context,
+            loading=loading,
         )
         pygame.display.flip()
         clock.tick(60)
@@ -627,6 +701,7 @@ def run_replay_ui(match_id: str, db_path: str = "ai_arena.db", speed: float = 1.
             player_icons=player_icons,
             stats=stats,
             phase_context=phase_context,
+            loading=False,
         )
         pygame.display.flip()
         clock.tick(60)
@@ -770,6 +845,7 @@ def _render_frame(
     player_icons: Dict[str, pygame.Surface],
     stats: Dict[str, Dict[str, int]],
     phase_context: Dict[str, Dict[str, object]] | None = None,
+    loading: bool = False,
 ) -> Dict[str, object]:
     screen.fill(WINDOW_BG)
     width, height = screen.get_size()
@@ -797,8 +873,10 @@ def _render_frame(
     # Controls
     mouse_pos = pygame.mouse.get_pos()
     next_label = "Next Message" if phase_name == "Negotiation" and negotiation_index < len(negotiation_messages) else "Next Phase"
-    next_rect = pygame.Rect(panel_x, 14, 170, 36)
-    auto_rect = pygame.Rect(panel_x + 180, 14, 200, 36)
+    controls_w = 170 + 12 + 200
+    controls_x = max(panel_x, panel_x + panel_w - controls_w)
+    next_rect = pygame.Rect(controls_x, 14, 170, 36)
+    auto_rect = pygame.Rect(controls_x + 182, 14, 200, 36)
     _draw_button(
         screen,
         next_rect,
@@ -817,6 +895,12 @@ def _render_frame(
     )
     layout["next_button"] = next_rect
     layout["autoplay_button"] = auto_rect
+
+    if loading:
+        loading_text = "Loading..."
+        loading_surf = font.render(loading_text, True, (240, 220, 120))
+        loading_rect = loading_surf.get_rect(midtop=(width // 2, 18))
+        screen.blit(loading_surf, loading_rect)
 
     # Board and tiles
     layout["agent_icons"].update(

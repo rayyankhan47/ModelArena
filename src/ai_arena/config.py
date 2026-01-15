@@ -25,7 +25,7 @@ class Settings(BaseSettings):
     # Backboard Model Routing (per-player models)
     p1_model: str = "gpt-5"
     p1_provider: str = "openai"
-    p2_model: str = "claude-3-7-sonnet"
+    p2_model: str = "claude-3-7-sonnet-20250219"
     p2_provider: str = "anthropic"
     p3_model: str = "gemini-2.5-flash"
     p3_provider: str = "google"
