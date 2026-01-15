@@ -108,3 +108,4 @@ dmypy.json
 ai_arena.db
 *.db
 logs/
+.DS_Store
