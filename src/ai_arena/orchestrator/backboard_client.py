@@ -182,27 +182,35 @@ class BackboardClient:
             f"/threads/{thread_id}/runs/{run_id}/submit_tool_outputs",
             f"/threads/{thread_id}/runs/{run_id}/submit-tool-outputs/",
             f"/threads/{thread_id}/runs/{run_id}/submit_tool_outputs/",
+            # Some APIs use "tool-outputs" rather than "submit-tool-outputs"
+            f"/threads/{thread_id}/runs/{run_id}/tool-outputs",
+            f"/threads/{thread_id}/runs/{run_id}/tool_outputs",
+            f"/threads/{thread_id}/runs/{run_id}/tool-outputs/",
+            f"/threads/{thread_id}/runs/{run_id}/tool_outputs/",
             f"/runs/{run_id}/submit-tool-outputs",
             f"/runs/{run_id}/submit_tool_outputs",
+            f"/runs/{run_id}/tool-outputs",
+            f"/runs/{run_id}/tool_outputs",
         ]
 
         last_exc: Optional[Exception] = None
         for path in candidate_paths:
-            try:
-                return self._request(
-                    "POST",
-                    path,
-                    params={"stream": "true" if stream else "false"},
-                    json_body=payload,
-                )
-            except Exception as exc:  # noqa: BLE001
-                last_exc = exc
-                resp = getattr(exc, "response", None)
-                status = getattr(resp, "status_code", None)
-                # Only fall back on "Not Found" style errors.
-                if status == 404:
-                    continue
-                raise
+            for method in ("POST", "PUT", "PATCH"):
+                try:
+                    return self._request(
+                        method,
+                        path,
+                        params={"stream": "true" if stream else "false"},
+                        json_body=payload,
+                    )
+                except Exception as exc:  # noqa: BLE001
+                    last_exc = exc
+                    resp = getattr(exc, "response", None)
+                    status = getattr(resp, "status_code", None)
+                    # Keep trying alternates for common "wrong endpoint/method" failures.
+                    if status in (404, 405):
+                        continue
+                    raise
 
         raise last_exc  # pragma: no cover
 
