@@ -1,8 +1,9 @@
 """Configuration management for AI Arena."""
 
-import os
-from typing import Optional
-from pydantic_settings import BaseSettings
+try:
+    from pydantic_settings import BaseSettings  # type: ignore[import-not-found]
+except ImportError:  # pragma: no cover
+    from pydantic import BaseSettings
 
 
 class Settings(BaseSettings):
