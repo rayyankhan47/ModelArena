@@ -182,9 +182,57 @@ def _select_random_actions(state: GameState) -> Dict[str, object]:
 
 def _is_action_legal(state: GameState, player_id: str, action: object) -> bool:
     """Lightweight legality check using existing rule summaries."""
-    summaries = legal_actions(state, player_id)
     action_type = getattr(action, "type", None)
-    return any(s.type == action_type for s in summaries)
+    if action_type is None:
+        return False
+
+    player = state.players[player_id]
+    tile = state.board[player.pos.y][player.pos.x]
+
+    if action_type == ActionType.MOVE.value and isinstance(action, MoveAction):
+        dest = _apply_direction(player.pos.x, player.pos.y, action.dir)
+        return _in_bounds(state, dest)
+    if action_type == ActionType.COLLECT.value:
+        return tile.type in [
+            TileType.TREASURE_1,
+            TileType.TREASURE_2,
+            TileType.TREASURE_3,
+            TileType.KEY,
+        ]
+    if action_type == ActionType.OPEN_VAULT.value:
+        return tile.type == TileType.VAULT and player.keys > 0
+    if action_type == ActionType.SCAN.value:
+        return tile.type == TileType.SCANNER
+    if action_type == ActionType.SET_TRAP.value and isinstance(action, SetTrapAction):
+        dest = _apply_direction(player.pos.x, player.pos.y, action.dir)
+        if not _in_bounds(state, dest):
+            return False
+        return state.board[dest[1]][dest[0]].type == TileType.EMPTY
+    if action_type == ActionType.STEAL.value and isinstance(action, StealAction):
+        target = state.players.get(action.target_player_id)
+        if not target:
+            return False
+        return abs(player.pos.x - target.pos.x) + abs(player.pos.y - target.pos.y) == 1
+    if action_type == ActionType.NOOP.value:
+        return True
+
+    return False
+
+
+def _apply_direction(x: int, y: int, direction: str) -> Tuple[int, int]:
+    if direction == "N":
+        return x, y - 1
+    if direction == "E":
+        return x + 1, y
+    if direction == "S":
+        return x, y + 1
+    if direction == "W":
+        return x - 1, y
+    return x, y
+
+
+def _in_bounds(state: GameState, coord: Tuple[int, int]) -> bool:
+    return 0 <= coord[0] < len(state.board[0]) and 0 <= coord[1] < len(state.board)
 
 
 def _render_frame(
