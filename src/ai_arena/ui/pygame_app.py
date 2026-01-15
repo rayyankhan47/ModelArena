@@ -784,12 +784,26 @@ def _render_frame(
     screen.blit(font.render(sub, True, TEXT_COLOR), (margin, 44))
 
     # Controls
+    mouse_pos = pygame.mouse.get_pos()
     next_label = "Next Message" if phase_name == "Negotiation" and negotiation_index < len(negotiation_messages) else "Next Phase"
-    next_rect = pygame.Rect(panel_x, 18, 140, 28)
-    auto_rect = pygame.Rect(panel_x + 150, 18, 160, 28)
-    _draw_button(screen, next_rect, next_label, enabled=started and not match_over)
+    next_rect = pygame.Rect(panel_x, 14, 170, 36)
+    auto_rect = pygame.Rect(panel_x + 180, 14, 200, 36)
+    _draw_button(
+        screen,
+        next_rect,
+        next_label,
+        enabled=started and not match_over,
+        hovered=next_rect.collidepoint(mouse_pos),
+    )
     auto_label = "Mode: Autoplay" if autoplay else "Mode: Manual"
-    _draw_button(screen, auto_rect, auto_label, active=autoplay, enabled=started and not match_over)
+    _draw_button(
+        screen,
+        auto_rect,
+        auto_label,
+        active=autoplay,
+        enabled=started and not match_over,
+        hovered=auto_rect.collidepoint(mouse_pos),
+    )
     layout["next_button"] = next_rect
     layout["autoplay_button"] = auto_rect
 
@@ -834,7 +848,7 @@ def _render_frame(
         layout["drawer_rect"] = drawer_rect
 
     if not started:
-        layout["play_button"] = _draw_welcome_overlay(screen, heading_font, font, small_font)
+        layout["play_button"] = _draw_welcome_overlay(screen, heading_font, font, small_font, mouse_pos)
 
     if match_over:
         _draw_end_overlay(screen, heading_font, font, small_font, state, stats)
@@ -1000,20 +1014,29 @@ def _draw_lines(screen, lines: List[str], x: int, y: int, font):
         offset += 18
 
 
-def _draw_button(screen, rect: pygame.Rect, label: str, active: bool = False, enabled: bool = True):
+def _draw_button(
+    screen,
+    rect: pygame.Rect,
+    label: str,
+    active: bool = False,
+    enabled: bool = True,
+    hovered: bool = False,
+):
     bg = (52, 96, 160) if active else (40, 40, 52)
+    if hovered and enabled:
+        bg = _lighten_color(bg, 18)
     if not enabled:
         bg = (30, 30, 38)
-    pygame.draw.rect(screen, bg, rect, border_radius=6)
-    pygame.draw.rect(screen, (80, 80, 90), rect, 1, border_radius=6)
-    font = pygame.font.SysFont("Arial", 14)
-    text_color = (220, 220, 230) if enabled else (120, 120, 130)
+    pygame.draw.rect(screen, bg, rect, border_radius=8)
+    pygame.draw.rect(screen, (90, 90, 100), rect, 1, border_radius=8)
+    font = pygame.font.SysFont("Arial", 15)
+    text_color = (230, 230, 240) if enabled else (120, 120, 130)
     label_surf = font.render(label, True, text_color)
     label_rect = label_surf.get_rect(center=rect.center)
     screen.blit(label_surf, label_rect)
 
 
-def _draw_welcome_overlay(screen, heading_font, font, small_font) -> pygame.Rect:
+def _draw_welcome_overlay(screen, heading_font, font, small_font, mouse_pos) -> pygame.Rect:
     width, height = screen.get_size()
     overlay = pygame.Surface((width, height), pygame.SRCALPHA)
     overlay.fill((10, 10, 14, 230))
@@ -1039,8 +1062,8 @@ def _draw_welcome_overlay(screen, heading_font, font, small_font) -> pygame.Rect
         screen.blit(small_font.render(line, True, (200, 200, 210)), (panel_rect.x + 24, y))
         y += 18
 
-    play_rect = pygame.Rect(panel_rect.x + 24, panel_rect.bottom - 60, 160, 36)
-    _draw_button(screen, play_rect, "Play", enabled=True)
+    play_rect = pygame.Rect(panel_rect.x + 24, panel_rect.bottom - 68, 200, 44)
+    _draw_button(screen, play_rect, "Play", enabled=True, hovered=play_rect.collidepoint(mouse_pos))
     return play_rect
 
 
@@ -1087,6 +1110,14 @@ def _wrap_text(text: str, font, max_width: int) -> List[str]:
     if current:
         lines.append(current)
     return lines
+
+
+def _lighten_color(color: Tuple[int, int, int], amount: int) -> Tuple[int, int, int]:
+    return (
+        min(255, color[0] + amount),
+        min(255, color[1] + amount),
+        min(255, color[2] + amount),
+    )
 
 
 def _phase_details(
