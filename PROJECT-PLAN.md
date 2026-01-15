@@ -117,9 +117,9 @@ Acceptance criteria:
 
 #### Milestone I — RAG
 
-- [ ] Write `rag/corpus/rules.md` and `rag/corpus/strategy.md`
-- [ ] Implement `rag/index.py` and `rag/retrieve.py`
-- [ ] Integrate retrieval into planning calls (top-k snippets)
+- [x] Write `rag/corpus/rules.md` and `rag/corpus/strategy.md`
+- [x] Implement `rag/index.py` and `rag/retrieve.py`
+- [x] Integrate retrieval into planning calls (top-k snippets)
 - [ ] Display retrieved snippets in inspector
 - [ ] Log retrieval queries/results
 
@@ -178,5 +178,5 @@ We will build in this order to keep feedback tight and avoid integration dead-en
 ---
 
 Next up:
-- [ ] Milestone I: RAG
+- [ ] Milestone J: Web search (rate-limited)
 
