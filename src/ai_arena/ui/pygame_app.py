@@ -532,7 +532,7 @@ def _render_frame(
     next_rect = pygame.Rect(panel_x, 18, 140, 28)
     auto_rect = pygame.Rect(panel_x + 150, 18, 160, 28)
     _draw_button(screen, next_rect, next_label, enabled=started and not match_over)
-    auto_label = "Autoplay: On" if autoplay else "Autoplay: Off"
+    auto_label = "Mode: Autoplay" if autoplay else "Mode: Manual"
     _draw_button(screen, auto_rect, auto_label, active=autoplay, enabled=started and not match_over)
     layout["next_button"] = next_rect
     layout["autoplay_button"] = auto_rect
