@@ -107,10 +107,10 @@ Acceptance criteria:
 
 #### Milestone H — Negotiation + deals (logging only)
 
-- [ ] Add negotiation phase messaging (1 message per agent per round)
-- [ ] Implement deal objects (propose/accept/reject/expire)
-- [ ] Show active deals in the UI (compact)
-- [ ] Write negotiation transcript + deal snapshots to shared match memory
+- [x] Add negotiation phase messaging (1 message per agent per round)
+- [x] Implement deal objects (propose/accept/reject/expire)
+- [x] Show active deals in the UI (compact)
+- [x] Write negotiation transcript + deal snapshots to shared match memory
 
 Acceptance criteria:
 - Deals show up on screen and in memory summaries; no enforcement needed.
@@ -178,5 +178,5 @@ We will build in this order to keep feedback tight and avoid integration dead-en
 ---
 
 Next up:
-- [ ] Milestone H: Negotiation + deals (logging only)
+- [ ] Milestone I: RAG
 

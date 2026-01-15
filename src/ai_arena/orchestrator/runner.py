@@ -109,6 +109,12 @@ class OrchestratorRunner:
                     negotiation_messages.append(f"{player_id}: {message}")
                     self._append_shared_message(f"{player_id} says: {message}")
 
+            if negotiation_messages or deals:
+                transcript = " | ".join(negotiation_messages) if negotiation_messages else "No messages"
+                self._append_shared_message(
+                    f"Round {round_num} negotiation transcript: {transcript}. Deals: {self._deals_snapshot(deals)}"
+                )
+
             # Keep active deals on the state for UI/replay visibility
             state.active_deals = deals
 
@@ -312,6 +318,17 @@ class OrchestratorRunner:
         reward_str = ", ".join([f"{pid}:{rewards.get(pid, 0)}" for pid in PLAYER_IDS])
         event_str = "; ".join([e.kind for e in events[:6]])
         return f"Round {round_num} summary. Actions: {action_str}. Rewards: {reward_str}. Events: {event_str}."
+
+    def _deals_snapshot(self, deals: List[Any]) -> str:
+        if not deals:
+            return "none"
+        parts = []
+        for deal in deals[:6]:
+            from_player = getattr(deal, "from_player", "?")
+            to_player = getattr(deal, "to_player", "?")
+            status = getattr(deal, "status", "?")
+            parts.append(f"{from_player}->{to_player}({status})")
+        return ", ".join(parts)
 
     def _parse_action(self, response: Dict[str, Any]) -> Action:
         content = response.get("content") or ""
