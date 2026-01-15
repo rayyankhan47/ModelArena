@@ -31,6 +31,12 @@ class Settings(BaseSettings):
     p4_model: str = "gpt-3.5-turbo"
     p4_provider: str = "openai"
 
+    # Legacy routing (optional fallback)
+    planner_model: str = ""
+    planner_provider: str = ""
+    actor_model: str = ""
+    actor_provider: str = ""
+
     # Search Rate Limiting
     enable_web_search: bool = False
     search_budget_per_agent: int = 1
@@ -42,6 +48,23 @@ class Settings(BaseSettings):
     class Config:
         env_file = ".env"
         case_sensitive = False
+
+    def model_post_init(self, __context):  # type: ignore[override]
+        """Fallback to legacy planner/actor env vars if per-player not set."""
+        has_per_player = any([
+            self.p1_model, self.p2_model, self.p3_model, self.p4_model
+        ])
+        if not has_per_player and (self.planner_model or self.actor_model):
+            self.p1_model = self.planner_model or self.p1_model
+            self.p1_provider = self.planner_provider or self.p1_provider
+            actor_model = self.actor_model or self.p4_model
+            actor_provider = self.actor_provider or self.p4_provider
+            self.p2_model = actor_model
+            self.p2_provider = actor_provider
+            self.p3_model = actor_model
+            self.p3_provider = actor_provider
+            self.p4_model = actor_model
+            self.p4_provider = actor_provider
 
 
 # Global settings instance
