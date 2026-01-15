@@ -3,6 +3,7 @@
 import sys
 import time
 import random
+from pathlib import Path
 from typing import Dict, List, Tuple
 
 import pygame
@@ -13,7 +14,6 @@ from ai_arena.engine.rules import legal_actions
 from ai_arena.engine.types import (
     ActionType,
     CollectAction,
-    Coord,
     GameState,
     MoveAction,
     NoopAction,
@@ -46,33 +46,96 @@ PLAYER_COLORS = {
     "P4": (200, 180, 80),
 }
 
-TAB_NAMES = ["Summary", "Memory", "Routing", "Tools", "RAG/Search", "Negotiation"]
+PLAYER_NAMES = {
+    "P1": "GPT-4",
+    "P2": "Claude",
+    "P3": "Gemini",
+    "P4": "GPT-3.5",
+}
+
+PLAYER_ASSETS = {
+    "P1": "gpt4.png",
+    "P2": "claude.jpeg",
+    "P3": "gemini.png",
+    "P4": "gpt3p5.png",
+}
+
+PHASES = [
+    ("A", "Snapshot"),
+    ("B", "Planning"),
+    ("C", "Negotiation"),
+    ("D", "Commit"),
+    ("E", "Resolve"),
+    ("F", "Memory"),
+]
+
+PHASE_STEP_SECONDS = 1.5
+NEGOTIATION_STEP_SECONDS = 0.6
 
 
 def run_demo(seed: str = "demo_1", rounds: int = 15, speed: float = 1.0, fullscreen: bool = True):
-    """Run a live demo with simple random agents."""
+    """Run a live demo with phase-by-phase controls and a clean UI."""
     pygame.init()
 
     if fullscreen:
         screen = pygame.display.set_mode((0, 0), pygame.FULLSCREEN)
     else:
-        screen = pygame.display.set_mode((1200, 800))
+        screen = pygame.display.set_mode((1400, 900))
 
     pygame.display.set_caption("AI Arena - Grid Heist")
     clock = pygame.time.Clock()
     font = pygame.font.SysFont("Arial", 18)
     small_font = pygame.font.SysFont("Arial", 14)
+    heading_font = pygame.font.SysFont("Arial", 22, bold=True)
 
     state = generate_initial_state(seed=seed, max_rounds=rounds)
     event_log: List[str] = []
-    paused = False
-    step_round = False
-    last_tick = time.time()
-    seconds_per_round = max(0.2, 1.0 / speed)
     selected_agent = "P1"
     drawer_open = False
-    active_tab = 0
-    pitch_mode = False
+    started = False
+    autoplay = False
+    match_over = False
+    phase_index = 0
+    phase_started_at = time.time()
+    negotiation_messages: List[Dict[str, str]] = []
+    negotiation_index = 0
+    pending_actions = None
+    stats = _init_match_stats()
+    player_icons = _load_player_icons()
+    phase_step_seconds = max(0.4, PHASE_STEP_SECONDS / max(speed, 0.1))
+    negotiation_step_seconds = max(0.2, NEGOTIATION_STEP_SECONDS / max(speed, 0.1))
+    layout: Dict[str, object] = {}
+
+    def enter_phase(new_index: int) -> None:
+        nonlocal negotiation_messages, negotiation_index, pending_actions, state, match_over, phase_started_at
+        phase_name = PHASES[new_index][1]
+        if phase_name == "Negotiation":
+            negotiation_messages = _build_demo_negotiation_messages(state, state.round)
+            negotiation_index = 0
+        if phase_name == "Commit":
+            pending_actions = _select_random_actions(state)
+        if phase_name == "Resolve":
+            if pending_actions is None:
+                pending_actions = _select_random_actions(state)
+            result = resolve_round(state, pending_actions)
+            state = result.next_state
+            _append_events(result.events, event_log, stats)
+            pending_actions = None
+            if state.round >= state.max_rounds:
+                match_over = True
+        phase_started_at = time.time()
+
+    def advance_phase() -> None:
+        nonlocal phase_index, negotiation_index, phase_started_at
+        if not started or match_over:
+            return
+        phase_name = PHASES[phase_index][1]
+        if phase_name == "Negotiation" and negotiation_index < len(negotiation_messages):
+            negotiation_index += 1
+            phase_started_at = time.time()
+            return
+        phase_index = (phase_index + 1) % len(PHASES)
+        enter_phase(phase_index)
 
     while True:
         for event in pygame.event.get():
@@ -83,95 +146,60 @@ def run_demo(seed: str = "demo_1", rounds: int = 15, speed: float = 1.0, fullscr
                 if event.key == pygame.K_ESCAPE:
                     pygame.quit()
                     sys.exit(0)
-                if event.key == pygame.K_SPACE:
-                    paused = not paused
-                if event.key == pygame.K_RIGHT:
-                    step_round = True
-                if event.key == pygame.K_1:
-                    selected_agent = "P1"
-                    drawer_open = True
-                if event.key == pygame.K_2:
-                    selected_agent = "P2"
-                    drawer_open = True
-                if event.key == pygame.K_3:
-                    selected_agent = "P3"
-                    drawer_open = True
-                if event.key == pygame.K_4:
-                    selected_agent = "P4"
-                    drawer_open = True
-                if event.key == pygame.K_i:
-                    drawer_open = not drawer_open
-                if event.key == pygame.K_p:
-                    pitch_mode = not pitch_mode
-                if event.key == pygame.K_TAB:
-                    active_tab = (active_tab + 1) % len(TAB_NAMES)
-                if event.key == pygame.K_MINUS:
-                    seconds_per_round = min(5.0, seconds_per_round + 0.2)
-                if event.key == pygame.K_EQUALS or event.key == pygame.K_PLUS:
-                    seconds_per_round = max(0.1, seconds_per_round - 0.2)
             if event.type == pygame.MOUSEBUTTONDOWN and event.button == 1:
-                clicked_agent = _hit_test_agent_icons(event.pos)
-                if clicked_agent:
-                    selected_agent = clicked_agent
-                    drawer_open = True
+                pos = event.pos
+                if not started:
+                    if layout.get("play_button") and layout["play_button"].collidepoint(pos):
+                        started = True
+                        enter_phase(phase_index)
+                    continue
+                if layout.get("autoplay_button") and layout["autoplay_button"].collidepoint(pos):
+                    if started and not match_over:
+                        autoplay = not autoplay
+                        phase_started_at = time.time()
+                if layout.get("next_button") and layout["next_button"].collidepoint(pos):
+                    advance_phase()
+                if layout.get("agent_icons"):
+                    for pid, rect in layout["agent_icons"].items():
+                        if rect.collidepoint(pos):
+                            selected_agent = pid
+                            drawer_open = True
+                            break
+                if drawer_open and layout.get("drawer_rect") and not layout["drawer_rect"].collidepoint(pos):
+                    drawer_open = False
 
         now = time.time()
-        if state.round >= state.max_rounds:
-            paused = True
-
-        if (not paused or step_round) and (now - last_tick) >= seconds_per_round:
-            actions = _select_random_actions(state)
-            result = resolve_round(state, actions)
-            state = result.next_state
-            for ev in result.events[-6:]:
-                # Format events more readably
-                player_id = ev.payload.get("player_id", "?")
-                if ev.kind == "collect_treasure":
-                    value = ev.payload.get("value", 0)
-                    event_log.append(f"R{ev.round}: {player_id} collected treasure (+{value} pts)")
-                elif ev.kind == "collect_key":
-                    event_log.append(f"R{ev.round}: {player_id} collected a key")
-                elif ev.kind == "open_vault":
-                    event_log.append(f"R{ev.round}: {player_id} opened vault (+8 pts!)")
-                elif ev.kind == "scan_used":
-                    event_log.append(f"R{ev.round}: {player_id} used scanner (+1 pt)")
-                elif ev.kind == "trap_set":
-                    event_log.append(f"R{ev.round}: {player_id} set a trap")
-                elif ev.kind == "trap_triggered":
-                    event_log.append(f"R{ev.round}: {player_id} triggered a trap!")
-                elif ev.kind == "steal_key":
-                    target = ev.payload.get("target", "?")
-                    event_log.append(f"R{ev.round}: {player_id} stole key from {target}")
-                elif ev.kind == "steal_point":
-                    target = ev.payload.get("target", "?")
-                    event_log.append(f"R{ev.round}: {player_id} stole 1 pt from {target}")
-                elif ev.kind == "steal_fail":
-                    target = ev.payload.get("target", "?")
-                    event_log.append(f"R{ev.round}: {player_id} failed to steal from {target}")
-                elif ev.kind == "collision_blocked":
-                    event_log.append(f"R{ev.round}: {player_id} blocked by collision")
-                elif ev.kind == "illegal_action":
-                    event_log.append(f"R{ev.round}: {player_id} illegal action")
-                elif ev.kind == "trapped_noop":
-                    event_log.append(f"R{ev.round}: {player_id} is trapped (no action)")
+        if autoplay and started and not match_over:
+            phase_name = PHASES[phase_index][1]
+            if phase_name == "Negotiation":
+                if negotiation_index < len(negotiation_messages):
+                    if now - phase_started_at >= negotiation_step_seconds:
+                        negotiation_index += 1
+                        phase_started_at = now
                 else:
-                    event_log.append(f"R{ev.round}: {ev.kind} {ev.payload}")
-            event_log = event_log[-6:]
-            last_tick = now
-            step_round = False
+                    if now - phase_started_at >= phase_step_seconds:
+                        advance_phase()
+            else:
+                if now - phase_started_at >= phase_step_seconds:
+                    advance_phase()
 
-        _render_frame(
-            screen,
-            state,
-            event_log,
-            font,
-            small_font,
-            paused,
-            seconds_per_round,
-            selected_agent,
-            drawer_open,
-            active_tab,
-            pitch_mode,
+        layout = _render_frame(
+            screen=screen,
+            state=state,
+            event_log=event_log,
+            font=font,
+            small_font=small_font,
+            heading_font=heading_font,
+            started=started,
+            autoplay=autoplay,
+            match_over=match_over,
+            phase_index=phase_index,
+            negotiation_messages=negotiation_messages,
+            negotiation_index=negotiation_index,
+            selected_agent=selected_agent,
+            drawer_open=drawer_open,
+            player_icons=player_icons,
+            stats=stats,
         )
         pygame.display.flip()
         clock.tick(60)
@@ -304,23 +332,110 @@ def _render_frame(
     event_log: List[str],
     font,
     small_font,
-    paused: bool,
-    seconds_per_round: float,
+    heading_font,
+    started: bool,
+    autoplay: bool,
+    match_over: bool,
+    phase_index: int,
+    negotiation_messages: List[Dict[str, str]],
+    negotiation_index: int,
     selected_agent: str,
     drawer_open: bool,
-    active_tab: int,
-    pitch_mode: bool,
-):
+    player_icons: Dict[str, pygame.Surface],
+    stats: Dict[str, Dict[str, int]],
+) -> Dict[str, object]:
     screen.fill(WINDOW_BG)
     width, height = screen.get_size()
+    layout: Dict[str, object] = {"agent_icons": {}}
 
-    # Layout regions
-    board_size_px = min(int(width * 0.6), int(height * 0.8))
-    board_x = int(width * 0.05)
-    board_y = int(height * 0.1)
+    margin = 24
+    header_h = 70
+    board_size_px = min(int(width * 0.55), int(height * 0.65))
+    board_x = margin
+    board_y = header_h + 20
     tile_size = board_size_px // BOARD_SIZE
+    panel_x = board_x + board_size_px + 32
+    panel_y = header_h
+    panel_w = max(280, width - panel_x - margin)
+    panel_h = height - panel_y - margin
 
-    # Draw board tiles with labels
+    phase_code, phase_name = PHASES[phase_index]
+    current_round = min(state.round + 1, state.max_rounds)
+
+    title = "AI Arena — Grid Heist"
+    screen.blit(heading_font.render(title, True, TEXT_COLOR), (margin, 18))
+    sub = f"Round {current_round} of {state.max_rounds} · Phase {phase_code}: {phase_name}"
+    screen.blit(font.render(sub, True, TEXT_COLOR), (margin, 44))
+
+    # Controls
+    next_label = "Next Message" if phase_name == "Negotiation" and negotiation_index < len(negotiation_messages) else "Next Phase"
+    next_rect = pygame.Rect(panel_x, 18, 140, 28)
+    auto_rect = pygame.Rect(panel_x + 150, 18, 160, 28)
+    _draw_button(screen, next_rect, next_label, enabled=started and not match_over)
+    auto_label = "Autoplay: On" if autoplay else "Autoplay: Off"
+    _draw_button(screen, auto_rect, auto_label, active=autoplay, enabled=started and not match_over)
+    layout["next_button"] = next_rect
+    layout["autoplay_button"] = auto_rect
+
+    # Board and tiles
+    layout["agent_icons"].update(
+        _draw_board(screen, state, board_x, board_y, tile_size, small_font, player_icons, selected_agent)
+    )
+
+    # Right panel background
+    panel_rect = pygame.Rect(panel_x, panel_y, panel_w, panel_h)
+    pygame.draw.rect(screen, (24, 24, 30), panel_rect)
+    pygame.draw.rect(screen, (60, 60, 70), panel_rect, 2)
+
+    # Scoreboard
+    _draw_scoreboard(screen, state, panel_rect, font, small_font, player_icons)
+
+    # Negotiation chat panel
+    if started and phase_name == "Negotiation":
+        _draw_chat_panel(
+            screen,
+            panel_rect,
+            small_font,
+            negotiation_messages[:negotiation_index],
+        )
+
+    # Event log and legend
+    _draw_event_log(screen, event_log, small_font, board_x, board_y + board_size_px + 18)
+    _draw_legend(screen, small_font, board_x, height - margin - 40)
+
+    if drawer_open:
+        drawer_rect = _draw_inspector_drawer(
+            screen,
+            state,
+            selected_agent,
+            phase_name,
+            small_font,
+            font,
+            negotiation_messages[:negotiation_index],
+            stats,
+        )
+        layout["drawer_rect"] = drawer_rect
+
+    if not started:
+        layout["play_button"] = _draw_welcome_overlay(screen, heading_font, font, small_font)
+
+    if match_over:
+        _draw_end_overlay(screen, heading_font, font, small_font, state, stats)
+
+    return layout
+
+
+def _draw_board(
+    screen,
+    state: GameState,
+    board_x: int,
+    board_y: int,
+    tile_size: int,
+    font,
+    player_icons: Dict[str, pygame.Surface],
+    selected_agent: str,
+) -> Dict[str, pygame.Rect]:
+    hitboxes: Dict[str, pygame.Rect] = {}
     for y in range(BOARD_SIZE):
         for x in range(BOARD_SIZE):
             tile = state.board[y][x]
@@ -328,190 +443,374 @@ def _render_frame(
             rect = pygame.Rect(board_x + x * tile_size, board_y + y * tile_size, tile_size, tile_size)
             pygame.draw.rect(screen, color, rect)
             pygame.draw.rect(screen, GRID_COLOR, rect, 1)
-            
-            # Add tile labels for clarity
-            if tile.type != TileType.EMPTY:
-                label_text = _get_tile_label(tile.type)
-                if label_text:
-                    label = small_font.render(label_text, True, (10, 10, 10))
-                    label_rect = label.get_rect(center=(rect.centerx, rect.centery))
-                    screen.blit(label, label_rect)
+            label_text = _get_tile_label(tile.type)
+            if label_text:
+                label = font.render(label_text, True, (10, 10, 10))
+                label_rect = label.get_rect(center=(rect.centerx, rect.centery))
+                screen.blit(label, label_rect)
 
-    # Draw players
     for player_id, player in state.players.items():
         px = board_x + player.pos.x * tile_size + tile_size // 2
         py = board_y + player.pos.y * tile_size + tile_size // 2
-        pygame.draw.circle(screen, PLAYER_COLORS.get(player_id, (200, 200, 200)), (px, py), tile_size // 3)
-        label = small_font.render(player_id, True, (10, 10, 10))
-        screen.blit(label, (px - 8, py - 8))
-
-    # Agent dock
-    _draw_agent_dock(screen, selected_agent, small_font)
-
-    # Top bar with game explanation
-    if not pitch_mode:
-        top_text = f"Round {state.round}/{state.max_rounds}  |  {'PAUSED' if paused else 'RUNNING'}  |  Speed {seconds_per_round:.1f}s"
-        screen.blit(font.render(top_text, True, TEXT_COLOR), (board_x, board_y - 30))
-        
-        # Game explanation
-        help_text = "Grid Heist: Collect treasures/keys, open vaults (+8 pts), set traps, steal from others. Highest score wins!"
-        screen.blit(small_font.render(help_text, True, (150, 150, 150)), (board_x, board_y - 50))
-
-    # Scoreboard (right panel)
-    right_x = int(width * 0.7)
-    right_y = int(height * 0.1)
-    if not pitch_mode:
-        screen.blit(font.render("Scoreboard", True, TEXT_COLOR), (right_x, right_y))
-    offset = 30
-    for player_id, player in sorted(state.players.items()):
-        line = f"{player_id}  score={player.score}  keys={player.keys}"
-        screen.blit(small_font.render(line, True, PLAYER_COLORS.get(player_id, TEXT_COLOR)), (right_x, right_y + offset))
-        offset += 20
-
-    if not pitch_mode:
-        # Active deals (right panel)
-        deal_y = right_y + offset + 10
-        screen.blit(small_font.render("Deals", True, TEXT_COLOR), (right_x, deal_y))
-        if state.active_deals:
-            for i, deal in enumerate(state.active_deals[:4]):
-                summary = f"{deal.from_player}->{deal.to_player} {deal.status}"
-                screen.blit(small_font.render(summary, True, TEXT_COLOR), (right_x, deal_y + 18 + i * 16))
+        size = int(tile_size * 0.72)
+        icon_rect = pygame.Rect(px - size // 2, py - size // 2, size, size)
+        icon = player_icons.get(player_id)
+        if icon is not None:
+            scaled = pygame.transform.smoothscale(icon, (size, size))
+            screen.blit(scaled, icon_rect)
         else:
-            screen.blit(small_font.render("None", True, TEXT_COLOR), (right_x, deal_y + 18))
+            pygame.draw.rect(screen, PLAYER_COLORS.get(player_id, (200, 200, 200)), icon_rect, border_radius=6)
+        if player_id == selected_agent:
+            pygame.draw.rect(screen, (255, 255, 255), icon_rect, 2, border_radius=6)
+        hitboxes[player_id] = icon_rect
 
-    # Event ticker (bottom) with better formatting
-    if not pitch_mode:
-        ticker_y = int(height * 0.85)
-        screen.blit(font.render("Recent Events", True, TEXT_COLOR), (board_x, ticker_y))
-        for i, line in enumerate(event_log[-6:]):
-            # Color code events for better visibility
-            color = _get_event_color(line)
-            screen.blit(small_font.render(line, True, color), (board_x, ticker_y + 20 + i * 18))
-        
-        # Add legend/help text
-        legend_y = int(height * 0.92)
-        legend_text = "Tiles: Green=Treasure1, Blue=Treasure2, Orange=Treasure3, Yellow=Key, Purple=Vault, Cyan=Scanner, Red=Trap"
-        screen.blit(small_font.render(legend_text, True, (150, 150, 150)), (board_x, legend_y))
-
-    if drawer_open:
-        _draw_inspector_drawer(screen, state, selected_agent, active_tab, font, small_font)
-
-    if pitch_mode:
-        _draw_pitch_banner(screen, small_font)
+    return hitboxes
 
 
-def _draw_agent_dock(screen, selected_agent: str, font):
-    width, _ = screen.get_size()
-    dock_x = int(width * 0.05)
-    dock_y = 12
-    for idx, pid in enumerate(["P1", "P2", "P3", "P4"]):
-        color = PLAYER_COLORS.get(pid, TEXT_COLOR)
-        rect = pygame.Rect(dock_x + idx * 36, dock_y, 28, 28)
-        pygame.draw.rect(screen, color, rect, border_radius=6)
-        if pid == selected_agent:
-            pygame.draw.rect(screen, (255, 255, 255), rect, 2, border_radius=6)
-        label = font.render(pid, True, (10, 10, 10))
-        screen.blit(label, (rect.x + 4, rect.y + 4))
+def _draw_scoreboard(screen, state: GameState, panel_rect: pygame.Rect, font, small_font, icons):
+    header = font.render("Scoreboard", True, TEXT_COLOR)
+    screen.blit(header, (panel_rect.x + 16, panel_rect.y + 16))
+    y = panel_rect.y + 46
+    for player_id, player in sorted(state.players.items()):
+        name = PLAYER_NAMES.get(player_id, player_id)
+        icon = icons.get(player_id)
+        if icon is not None:
+            scaled = pygame.transform.smoothscale(icon, (24, 24))
+            screen.blit(scaled, (panel_rect.x + 16, y))
+        label = f"{name}  ·  {player.score} pts  ·  {player.keys} keys"
+        screen.blit(small_font.render(label, True, TEXT_COLOR), (panel_rect.x + 48, y + 4))
+        y += 30
 
 
-def _draw_inspector_drawer(screen, state: GameState, selected_agent: str, active_tab: int, font, small_font):
+def _draw_chat_panel(screen, panel_rect: pygame.Rect, font, messages: List[Dict[str, str]]):
+    chat_rect = pygame.Rect(panel_rect.x + 16, panel_rect.y + 160, panel_rect.width - 32, panel_rect.height - 190)
+    pygame.draw.rect(screen, (18, 18, 22), chat_rect)
+    pygame.draw.rect(screen, (60, 60, 70), chat_rect, 1)
+    title = font.render("Negotiation (public)", True, TEXT_COLOR)
+    screen.blit(title, (chat_rect.x + 8, chat_rect.y + 8))
+    y = chat_rect.y + 32
+    for msg in messages[-8:]:
+        speaker = msg.get("speaker", "Agent")
+        text = msg.get("text", "")
+        lines = _wrap_text(f"{speaker}: {text}", font, chat_rect.width - 16)
+        for line in lines:
+            if y > chat_rect.bottom - 20:
+                break
+            screen.blit(font.render(line, True, (210, 210, 220)), (chat_rect.x + 8, y))
+            y += 18
+
+
+def _draw_event_log(screen, event_log: List[str], font, x: int, y: int):
+    title = font.render("Recent Events", True, TEXT_COLOR)
+    screen.blit(title, (x, y))
+    for idx, line in enumerate(event_log[-7:]):
+        color = _event_color(line)
+        screen.blit(font.render(line, True, color), (x, y + 20 + idx * 18))
+
+
+def _draw_legend(screen, font, x: int, y: int):
+    legend = "Legend: 1P=Treasure1  2P=Treasure2  3P=Treasure3  K=Key  V=Vault  SC=Scanner  TR=Trap"
+    screen.blit(font.render(legend, True, (150, 150, 150)), (x, y))
+
+
+def _draw_inspector_drawer(
+    screen,
+    state: GameState,
+    selected_agent: str,
+    phase_name: str,
+    small_font,
+    font,
+    negotiation_messages: List[Dict[str, str]],
+    stats: Dict[str, Dict[str, int]],
+) -> pygame.Rect:
     width, height = screen.get_size()
-    drawer_w = int(width * 0.28)
-    rect = pygame.Rect(width - drawer_w, 0, drawer_w, height)
-    pygame.draw.rect(screen, (24, 24, 30), rect)
-    pygame.draw.rect(screen, (60, 60, 70), rect, 2)
+    drawer_w = min(360, int(width * 0.3))
+    drawer_rect = pygame.Rect(width - drawer_w - 16, 100, drawer_w, height - 140)
+    pygame.draw.rect(screen, (24, 24, 30), drawer_rect)
+    pygame.draw.rect(screen, (60, 60, 70), drawer_rect, 2)
 
-    title = f"{selected_agent} Inspector"
-    screen.blit(font.render(title, True, TEXT_COLOR), (rect.x + 16, rect.y + 16))
+    name = PLAYER_NAMES.get(selected_agent, selected_agent)
+    title = f"{name} · {selected_agent}"
+    screen.blit(font.render(title, True, TEXT_COLOR), (drawer_rect.x + 16, drawer_rect.y + 16))
 
-    # Tabs
-    tab_y = rect.y + 52
-    for idx, name in enumerate(TAB_NAMES):
-        label = f"[{idx+1}] {name}"
-        color = (255, 255, 255) if idx == active_tab else TEXT_COLOR
-        screen.blit(small_font.render(label, True, color), (rect.x + 16, tab_y + idx * 18))
+    player = state.players[selected_agent]
+    lines = [
+        f"Position: ({player.pos.x}, {player.pos.y})",
+        f"Score: {player.score}",
+        f"Keys: {player.keys}",
+        f"Phase: {phase_name}",
+        "",
+    ]
 
-    # Content
-    content_y = tab_y + len(TAB_NAMES) * 18 + 10
-    content_x = rect.x + 16
+    phase_lines = _phase_details(state, selected_agent, phase_name, negotiation_messages)
+    lines.extend(phase_lines)
+    lines.append("")
+    lines.append("Session stats:")
+    lines.append(f"Treasure collected: {stats[selected_agent]['treasure']}")
+    lines.append(f"Keys collected: {stats[selected_agent]['keys']}")
+    lines.append(f"Vaults opened: {stats[selected_agent]['vaults']}")
+    lines.append(f"Scans used: {stats[selected_agent]['scans']}")
+    lines.append(f"Traps set: {stats[selected_agent]['traps']}")
+    lines.append(f"Steals: {stats[selected_agent]['steals']}")
 
-    if active_tab == 0:
-        _draw_lines(
-            screen,
-            [
-                f"Score: {state.players[selected_agent].score}",
-                f"Keys: {state.players[selected_agent].keys}",
-                f"Pos: ({state.players[selected_agent].pos.x},{state.players[selected_agent].pos.y})",
-                "Last action: demo",
-                "Reward delta: demo",
-            ],
-            content_x,
-            content_y,
-            small_font,
-        )
-    elif active_tab == 1:
-        _draw_lines(screen, ["Memory summary: demo", "Recent memory: demo"], content_x, content_y, small_font)
-    elif active_tab == 2:
-        _draw_lines(screen, ["Planner model: demo", "Actor model: demo"], content_x, content_y, small_font)
-    elif active_tab == 3:
-        _draw_lines(screen, ["Tool calls: demo"], content_x, content_y, small_font)
-    elif active_tab == 4:
-        _draw_lines(screen, ["Citations: demo", "SearchQuery: demo"], content_x, content_y, small_font)
-    elif active_tab == 5:
-        _draw_lines(screen, ["Last negotiation: demo"], content_x, content_y, small_font)
+    _draw_lines(screen, lines, drawer_rect.x + 16, drawer_rect.y + 50, small_font)
+    return drawer_rect
 
 
 def _draw_lines(screen, lines: List[str], x: int, y: int, font):
-    for i, line in enumerate(lines):
-        screen.blit(font.render(line, True, TEXT_COLOR), (x, y + i * 18))
+    offset = 0
+    for line in lines:
+        if line == "":
+            offset += 8
+            continue
+        screen.blit(font.render(line, True, TEXT_COLOR), (x, y + offset))
+        offset += 18
 
 
-def _draw_pitch_banner(screen, font):
-    width, _ = screen.get_size()
-    banner = "Pitch Mode: Memory + Routing + Tools + RAG + Search"
-    rect = pygame.Rect(int(width * 0.2), 8, int(width * 0.6), 28)
-    pygame.draw.rect(screen, (40, 70, 120), rect, border_radius=6)
-    screen.blit(font.render(banner, True, (240, 240, 240)), (rect.x + 10, rect.y + 6))
+def _draw_button(screen, rect: pygame.Rect, label: str, active: bool = False, enabled: bool = True):
+    bg = (52, 96, 160) if active else (40, 40, 52)
+    if not enabled:
+        bg = (30, 30, 38)
+    pygame.draw.rect(screen, bg, rect, border_radius=6)
+    pygame.draw.rect(screen, (80, 80, 90), rect, 1, border_radius=6)
+    font = pygame.font.SysFont("Arial", 14)
+    text_color = (220, 220, 230) if enabled else (120, 120, 130)
+    label_surf = font.render(label, True, text_color)
+    label_rect = label_surf.get_rect(center=rect.center)
+    screen.blit(label_surf, label_rect)
+
+
+def _draw_welcome_overlay(screen, heading_font, font, small_font) -> pygame.Rect:
+    width, height = screen.get_size()
+    overlay = pygame.Surface((width, height), pygame.SRCALPHA)
+    overlay.fill((10, 10, 14, 230))
+    screen.blit(overlay, (0, 0))
+
+    panel_w = int(width * 0.7)
+    panel_h = int(height * 0.6)
+    panel_rect = pygame.Rect((width - panel_w) // 2, (height - panel_h) // 2, panel_w, panel_h)
+    pygame.draw.rect(screen, (24, 24, 30), panel_rect)
+    pygame.draw.rect(screen, (80, 80, 90), panel_rect, 2)
+
+    title = heading_font.render("Welcome to Grid Heist", True, TEXT_COLOR)
+    screen.blit(title, (panel_rect.x + 24, panel_rect.y + 24))
+
+    rules = (
+        "Four AI agents compete on a 9x9 board. Collect treasures (1P/2P/3P), "
+        "grab keys, and open vaults for big points. Scanners grant +1 point, traps "
+        "skip the next action, and stealing lets you take a key or point from an adjacent rival."
+    )
+    lines = _wrap_text(rules, small_font, panel_w - 48)
+    y = panel_rect.y + 70
+    for line in lines:
+        screen.blit(small_font.render(line, True, (200, 200, 210)), (panel_rect.x + 24, y))
+        y += 18
+
+    play_rect = pygame.Rect(panel_rect.x + 24, panel_rect.bottom - 60, 160, 36)
+    _draw_button(screen, play_rect, "Play", enabled=True)
+    return play_rect
+
+
+def _draw_end_overlay(screen, heading_font, font, small_font, state: GameState, stats: Dict[str, Dict[str, int]]):
+    width, height = screen.get_size()
+    overlay = pygame.Surface((width, height), pygame.SRCALPHA)
+    overlay.fill((10, 10, 14, 220))
+    screen.blit(overlay, (0, 0))
+
+    panel_w = int(width * 0.6)
+    panel_h = int(height * 0.5)
+    panel_rect = pygame.Rect((width - panel_w) // 2, (height - panel_h) // 2, panel_w, panel_h)
+    pygame.draw.rect(screen, (24, 24, 30), panel_rect)
+    pygame.draw.rect(screen, (80, 80, 90), panel_rect, 2)
+
+    winner_id = max(state.players.keys(), key=lambda pid: state.players[pid].score)
+    winner_name = PLAYER_NAMES.get(winner_id, winner_id)
+    title = heading_font.render(f"{winner_name} wins!", True, TEXT_COLOR)
+    screen.blit(title, (panel_rect.x + 24, panel_rect.y + 24))
+
+    y = panel_rect.y + 70
+    for player_id, player in sorted(state.players.items()):
+        name = PLAYER_NAMES.get(player_id, player_id)
+        line = (
+            f"{name}: {player.score} pts, {player.keys} keys, "
+            f"{stats[player_id]['treasure']} treasure, {stats[player_id]['steals']} steals"
+        )
+        screen.blit(small_font.render(line, True, (210, 210, 220)), (panel_rect.x + 24, y))
+        y += 22
+
+
+def _wrap_text(text: str, font, max_width: int) -> List[str]:
+    words = text.split()
+    lines: List[str] = []
+    current = ""
+    for word in words:
+        test = f"{current} {word}".strip()
+        if font.size(test)[0] <= max_width:
+            current = test
+        else:
+            if current:
+                lines.append(current)
+            current = word
+    if current:
+        lines.append(current)
+    return lines
+
+
+def _phase_details(state: GameState, player_id: str, phase_name: str, messages: List[Dict[str, str]]) -> List[str]:
+    if phase_name == "Snapshot":
+        return ["Observing the board state and opponent positions."]
+    if phase_name == "Planning":
+        summary = _summarize_legal_actions(state, player_id)
+        return ["Planning next move.", f"Legal actions now: {summary}"]
+    if phase_name == "Negotiation":
+        last_message = ""
+        name = PLAYER_NAMES.get(player_id, player_id)
+        for msg in messages:
+            if msg.get("speaker") == name:
+                last_message = msg.get("text", "")
+        if last_message:
+            return ["Negotiating with other agents.", f"Latest message: {last_message}"]
+        return ["Negotiating with other agents."]
+    if phase_name == "Commit":
+        return ["Committing the final action for this round."]
+    if phase_name == "Resolve":
+        return ["Resolving actions and updating scores."]
+    if phase_name == "Memory":
+        return ["Summarizing this round into memory."]
+    return []
+
+
+def _summarize_legal_actions(state: GameState, player_id: str) -> str:
+    summaries = legal_actions(state, player_id)
+    types = []
+    for summary in summaries:
+        if summary.type not in types:
+            types.append(summary.type)
+    return ", ".join(t.replace("_", " ").title() for t in types) if types else "None"
 
 
 def _get_tile_label(tile_type: TileType) -> str:
-    """Get a short label for a tile type."""
     labels = {
-        TileType.TREASURE_1: "T1",
-        TileType.TREASURE_2: "T2",
-        TileType.TREASURE_3: "T3",
+        TileType.TREASURE_1: "1P",
+        TileType.TREASURE_2: "2P",
+        TileType.TREASURE_3: "3P",
         TileType.KEY: "K",
         TileType.VAULT: "V",
-        TileType.SCANNER: "S",
-        TileType.TRAP: "!",
+        TileType.SCANNER: "SC",
+        TileType.TRAP: "TR",
     }
     return labels.get(tile_type, "")
 
 
-def _get_event_color(event_line: str) -> Tuple[int, int, int]:
-    """Get color for an event line based on its type."""
-    if "collect_treasure" in event_line or "collect_key" in event_line:
-        return (100, 200, 100)  # Green for collections
-    if "open_vault" in event_line:
-        return (200, 150, 255)  # Purple for vaults
+def _event_color(event_line: str) -> Tuple[int, int, int]:
+    if "treasure" in event_line or "key" in event_line:
+        return (120, 200, 120)
+    if "vault" in event_line:
+        return (190, 160, 230)
     if "steal" in event_line:
-        return (255, 150, 150)  # Red for steals
+        return (230, 150, 150)
     if "trap" in event_line:
-        return (255, 100, 100)  # Bright red for traps
-    if "scan" in event_line:
-        return (150, 200, 255)  # Cyan for scans
-    if "collision" in event_line or "illegal" in event_line:
-        return (200, 200, 200)  # Gray for errors
-    return TEXT_COLOR  # Default
+        return (230, 110, 110)
+    if "scanner" in event_line:
+        return (150, 200, 230)
+    if "blocked" in event_line or "illegal" in event_line:
+        return (190, 190, 190)
+    return TEXT_COLOR
 
 
-def _hit_test_agent_icons(pos) -> str:
-    x, y = pos
-    width, _ = pygame.display.get_surface().get_size()
-    dock_x = int(width * 0.05)
-    dock_y = 12
-    for idx, pid in enumerate(["P1", "P2", "P3", "P4"]):
-        rect = pygame.Rect(dock_x + idx * 36, dock_y, 28, 28)
-        if rect.collidepoint(x, y):
-            return pid
+def _load_player_icons() -> Dict[str, pygame.Surface]:
+    assets_dir = Path(__file__).resolve().parents[2] / "assets"
+    icons: Dict[str, pygame.Surface] = {}
+    for pid, filename in PLAYER_ASSETS.items():
+        path = assets_dir / filename
+        if path.exists():
+            icons[pid] = pygame.image.load(str(path)).convert_alpha()
+        else:
+            icons[pid] = None
+    return icons
+
+
+def _build_demo_negotiation_messages(state: GameState, round_num: int) -> List[Dict[str, str]]:
+    messages = [
+        {"speaker": "Moderator", "text": f"Round {round_num + 1} negotiation begins. Keep it brief."},
+    ]
+    for pid, player in state.players.items():
+        name = PLAYER_NAMES.get(pid, pid)
+        if player.keys > 0:
+            text = "I have a key. Open to trade for safe passage."
+        elif player.score >= 4:
+            text = "Leading on points. Propose a temporary non-aggression."
+        else:
+            text = "Looking for a vault key. Will return favors later."
+        messages.append({"speaker": name, "text": text})
+    return messages
+
+
+def _init_match_stats() -> Dict[str, Dict[str, int]]:
+    return {
+        pid: {"treasure": 0, "keys": 0, "vaults": 0, "scans": 0, "traps": 0, "steals": 0}
+        for pid in PLAYER_NAMES.keys()
+    }
+
+
+def _append_events(events, event_log: List[str], stats: Dict[str, Dict[str, int]]) -> None:
+    for ev in events:
+        line = _format_event(ev)
+        if line:
+            event_log.append(line)
+        _update_stats(ev, stats)
+    event_log[:] = event_log[-7:]
+
+
+def _format_event(ev) -> str:
+    player_id = ev.payload.get("player_id", "?")
+    player_name = PLAYER_NAMES.get(player_id, player_id)
+    if ev.kind == "collect_treasure":
+        value = ev.payload.get("value", 0)
+        return f"R{ev.round}: {player_name} collected treasure (+{value})"
+    if ev.kind == "collect_key":
+        return f"R{ev.round}: {player_name} collected a key"
+    if ev.kind == "open_vault":
+        return f"R{ev.round}: {player_name} opened a vault (+8)"
+    if ev.kind == "scan_used":
+        return f"R{ev.round}: {player_name} used a scanner (+1)"
+    if ev.kind == "trap_set":
+        return f"R{ev.round}: {player_name} set a trap"
+    if ev.kind == "trap_triggered":
+        return f"R{ev.round}: {player_name} triggered a trap"
+    if ev.kind == "steal_key":
+        target = PLAYER_NAMES.get(ev.payload.get("target", "?"), ev.payload.get("target", "?"))
+        return f"R{ev.round}: {player_name} stole a key from {target}"
+    if ev.kind == "steal_point":
+        target = PLAYER_NAMES.get(ev.payload.get("target", "?"), ev.payload.get("target", "?"))
+        return f"R{ev.round}: {player_name} stole 1 point from {target}"
+    if ev.kind == "steal_fail":
+        target = PLAYER_NAMES.get(ev.payload.get("target", "?"), ev.payload.get("target", "?"))
+        return f"R{ev.round}: {player_name} failed to steal from {target}"
+    if ev.kind == "collision_blocked":
+        return f"R{ev.round}: {player_name} was blocked by a collision"
+    if ev.kind == "move_blocked":
+        return f"R{ev.round}: {player_name} move blocked (occupied)"
+    if ev.kind == "illegal_action":
+        return f"R{ev.round}: {player_name} attempted an illegal action"
+    if ev.kind == "trapped_noop":
+        return f"R{ev.round}: {player_name} is trapped"
     return ""
+
+
+def _update_stats(ev, stats: Dict[str, Dict[str, int]]) -> None:
+    player_id = ev.payload.get("player_id")
+    if player_id not in stats:
+        return
+    if ev.kind == "collect_treasure":
+        stats[player_id]["treasure"] += 1
+    if ev.kind == "collect_key":
+        stats[player_id]["keys"] += 1
+    if ev.kind == "open_vault":
+        stats[player_id]["vaults"] += 1
+    if ev.kind == "scan_used":
+        stats[player_id]["scans"] += 1
+    if ev.kind == "trap_set":
+        stats[player_id]["traps"] += 1
+    if ev.kind in ["steal_key", "steal_point"]:
+        stats[player_id]["steals"] += 1
