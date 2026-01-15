@@ -13,6 +13,7 @@ from ai_arena.engine.rules import legal_actions
 from ai_arena.engine.types import (
     ActionType,
     CollectAction,
+    Coord,
     GameState,
     MoveAction,
     NoopAction,
@@ -123,7 +124,38 @@ def run_demo(seed: str = "demo_1", rounds: int = 15, speed: float = 1.0, fullscr
             result = resolve_round(state, actions)
             state = result.next_state
             for ev in result.events[-6:]:
-                event_log.append(f"R{ev.round}: {ev.kind} {ev.payload}")
+                # Format events more readably
+                player_id = ev.payload.get("player_id", "?")
+                if ev.kind == "collect_treasure":
+                    value = ev.payload.get("value", 0)
+                    event_log.append(f"R{ev.round}: {player_id} collected treasure (+{value} pts)")
+                elif ev.kind == "collect_key":
+                    event_log.append(f"R{ev.round}: {player_id} collected a key")
+                elif ev.kind == "open_vault":
+                    event_log.append(f"R{ev.round}: {player_id} opened vault (+8 pts!)")
+                elif ev.kind == "scan_used":
+                    event_log.append(f"R{ev.round}: {player_id} used scanner (+1 pt)")
+                elif ev.kind == "trap_set":
+                    event_log.append(f"R{ev.round}: {player_id} set a trap")
+                elif ev.kind == "trap_triggered":
+                    event_log.append(f"R{ev.round}: {player_id} triggered a trap!")
+                elif ev.kind == "steal_key":
+                    target = ev.payload.get("target", "?")
+                    event_log.append(f"R{ev.round}: {player_id} stole key from {target}")
+                elif ev.kind == "steal_point":
+                    target = ev.payload.get("target", "?")
+                    event_log.append(f"R{ev.round}: {player_id} stole 1 pt from {target}")
+                elif ev.kind == "steal_fail":
+                    target = ev.payload.get("target", "?")
+                    event_log.append(f"R{ev.round}: {player_id} failed to steal from {target}")
+                elif ev.kind == "collision_blocked":
+                    event_log.append(f"R{ev.round}: {player_id} blocked by collision")
+                elif ev.kind == "illegal_action":
+                    event_log.append(f"R{ev.round}: {player_id} illegal action")
+                elif ev.kind == "trapped_noop":
+                    event_log.append(f"R{ev.round}: {player_id} is trapped (no action)")
+                else:
+                    event_log.append(f"R{ev.round}: {ev.kind} {ev.payload}")
             event_log = event_log[-6:]
             last_tick = now
             step_round = False
@@ -146,7 +178,7 @@ def run_demo(seed: str = "demo_1", rounds: int = 15, speed: float = 1.0, fullscr
 
 
 def _select_random_actions(state: GameState) -> Dict[str, object]:
-    """Select simple random actions for demo agents."""
+    """Select varied random actions for demo agents to showcase all game mechanics."""
     actions: Dict[str, object] = {}
     for player_id, player in state.players.items():
         if player.trapped_for > 0:
@@ -154,30 +186,61 @@ def _select_random_actions(state: GameState) -> Dict[str, object]:
             continue
 
         tile = state.board[player.pos.y][player.pos.x]
-        if tile.type in [TileType.TREASURE_1, TileType.TREASURE_2, TileType.TREASURE_3, TileType.KEY]:
-            actions[player_id] = CollectAction()
-            continue
+        
+        # Prioritize interesting actions to showcase game mechanics
+        action_priority = []
+        
+        # High priority: open vault if possible (big reward)
         if tile.type == TileType.VAULT and player.keys > 0:
-            actions[player_id] = OpenVaultAction()
-            continue
-        if tile.type == TileType.SCANNER:
-            if random.random() < 0.4:
-                actions[player_id] = ScanAction()
-                continue
-
-        # Prefer movement over other actions for a lively demo
-        move_dirs = ["N", "E", "S", "W"]
-        random.shuffle(move_dirs)
-        moved = False
-        for direction in move_dirs:
-            action = MoveAction(dir=direction)
-            if _is_action_legal(state, player_id, action):
-                actions[player_id] = action
-                moved = True
+            action_priority.append(OpenVaultAction())
+        
+        # High priority: steal if adjacent to another player
+        for other_id, other_player in state.players.items():
+            if other_id != player_id and _is_adjacent(player.pos, other_player.pos):
+                if random.random() < 0.3:  # 30% chance to steal when adjacent
+                    action_priority.append(StealAction(target_player_id=other_id))
+                    break
+        
+        # Medium priority: collect treasure/key
+        if tile.type in [TileType.TREASURE_1, TileType.TREASURE_2, TileType.TREASURE_3, TileType.KEY]:
+            action_priority.append(CollectAction())
+        
+        # Medium priority: scan on scanner tiles
+        if tile.type == TileType.SCANNER and random.random() < 0.5:
+            action_priority.append(ScanAction())
+        
+        # Low priority: set trap if we have keys (defensive play)
+        if player.keys > 0 and random.random() < 0.2:
+            for direction in ["N", "E", "S", "W"]:
+                trap_action = SetTrapAction(dir=direction)
+                if _is_action_legal(state, player_id, trap_action):
+                    action_priority.append(trap_action)
+                    break
+        
+        # Try prioritized actions first
+        selected = None
+        for act in action_priority:
+            if _is_action_legal(state, player_id, act):
+                selected = act
                 break
-        if not moved:
-            actions[player_id] = NoopAction()
+        
+        # Fallback to movement
+        if selected is None:
+            move_dirs = ["N", "E", "S", "W"]
+            random.shuffle(move_dirs)
+            for direction in move_dirs:
+                move_act = MoveAction(dir=direction)
+                if _is_action_legal(state, player_id, move_act):
+                    selected = move_act
+                    break
+        
+        actions[player_id] = selected if selected else NoopAction()
     return actions
+
+
+def _is_adjacent(pos1, pos2) -> bool:
+    """Check if two positions are adjacent."""
+    return abs(pos1.x - pos2.x) + abs(pos1.y - pos2.y) == 1
 
 
 def _is_action_legal(state: GameState, player_id: str, action: object) -> bool:
@@ -257,7 +320,7 @@ def _render_frame(
     board_y = int(height * 0.1)
     tile_size = board_size_px // BOARD_SIZE
 
-    # Draw board tiles
+    # Draw board tiles with labels
     for y in range(BOARD_SIZE):
         for x in range(BOARD_SIZE):
             tile = state.board[y][x]
@@ -265,6 +328,14 @@ def _render_frame(
             rect = pygame.Rect(board_x + x * tile_size, board_y + y * tile_size, tile_size, tile_size)
             pygame.draw.rect(screen, color, rect)
             pygame.draw.rect(screen, GRID_COLOR, rect, 1)
+            
+            # Add tile labels for clarity
+            if tile.type != TileType.EMPTY:
+                label_text = _get_tile_label(tile.type)
+                if label_text:
+                    label = small_font.render(label_text, True, (10, 10, 10))
+                    label_rect = label.get_rect(center=(rect.centerx, rect.centery))
+                    screen.blit(label, label_rect)
 
     # Draw players
     for player_id, player in state.players.items():
@@ -277,10 +348,14 @@ def _render_frame(
     # Agent dock
     _draw_agent_dock(screen, selected_agent, small_font)
 
-    # Top bar
+    # Top bar with game explanation
     if not pitch_mode:
         top_text = f"Round {state.round}/{state.max_rounds}  |  {'PAUSED' if paused else 'RUNNING'}  |  Speed {seconds_per_round:.1f}s"
         screen.blit(font.render(top_text, True, TEXT_COLOR), (board_x, board_y - 30))
+        
+        # Game explanation
+        help_text = "Grid Heist: Collect treasures/keys, open vaults (+8 pts), set traps, steal from others. Highest score wins!"
+        screen.blit(small_font.render(help_text, True, (150, 150, 150)), (board_x, board_y - 50))
 
     # Scoreboard (right panel)
     right_x = int(width * 0.7)
@@ -304,12 +379,19 @@ def _render_frame(
         else:
             screen.blit(small_font.render("None", True, TEXT_COLOR), (right_x, deal_y + 18))
 
-    # Event ticker (bottom)
+    # Event ticker (bottom) with better formatting
     if not pitch_mode:
         ticker_y = int(height * 0.85)
-        screen.blit(font.render("Events", True, TEXT_COLOR), (board_x, ticker_y))
+        screen.blit(font.render("Recent Events", True, TEXT_COLOR), (board_x, ticker_y))
         for i, line in enumerate(event_log[-6:]):
-            screen.blit(small_font.render(line, True, TEXT_COLOR), (board_x, ticker_y + 20 + i * 18))
+            # Color code events for better visibility
+            color = _get_event_color(line)
+            screen.blit(small_font.render(line, True, color), (board_x, ticker_y + 20 + i * 18))
+        
+        # Add legend/help text
+        legend_y = int(height * 0.92)
+        legend_text = "Tiles: Green=Treasure1, Blue=Treasure2, Orange=Treasure3, Yellow=Key, Purple=Vault, Cyan=Scanner, Red=Trap"
+        screen.blit(small_font.render(legend_text, True, (150, 150, 150)), (board_x, legend_y))
 
     if drawer_open:
         _draw_inspector_drawer(screen, state, selected_agent, active_tab, font, small_font)
@@ -390,6 +472,37 @@ def _draw_pitch_banner(screen, font):
     rect = pygame.Rect(int(width * 0.2), 8, int(width * 0.6), 28)
     pygame.draw.rect(screen, (40, 70, 120), rect, border_radius=6)
     screen.blit(font.render(banner, True, (240, 240, 240)), (rect.x + 10, rect.y + 6))
+
+
+def _get_tile_label(tile_type: TileType) -> str:
+    """Get a short label for a tile type."""
+    labels = {
+        TileType.TREASURE_1: "T1",
+        TileType.TREASURE_2: "T2",
+        TileType.TREASURE_3: "T3",
+        TileType.KEY: "K",
+        TileType.VAULT: "V",
+        TileType.SCANNER: "S",
+        TileType.TRAP: "!",
+    }
+    return labels.get(tile_type, "")
+
+
+def _get_event_color(event_line: str) -> Tuple[int, int, int]:
+    """Get color for an event line based on its type."""
+    if "collect_treasure" in event_line or "collect_key" in event_line:
+        return (100, 200, 100)  # Green for collections
+    if "open_vault" in event_line:
+        return (200, 150, 255)  # Purple for vaults
+    if "steal" in event_line:
+        return (255, 150, 150)  # Red for steals
+    if "trap" in event_line:
+        return (255, 100, 100)  # Bright red for traps
+    if "scan" in event_line:
+        return (150, 200, 255)  # Cyan for scans
+    if "collision" in event_line or "illegal" in event_line:
+        return (200, 200, 200)  # Gray for errors
+    return TEXT_COLOR  # Default
 
 
 def _hit_test_agent_icons(pos) -> str:
