@@ -96,6 +96,8 @@ def run_replay_loop(match_id: str, initial_state: GameState, round_count: int, s
     seconds_per_round = max(0.2, 1.0 / speed)
 
     event_log: List[str] = []
+    tool_log: List[str] = []
+    show_tools = True
 
     while True:
         for event in pygame.event.get():
@@ -114,6 +116,8 @@ def run_replay_loop(match_id: str, initial_state: GameState, round_count: int, s
                     seconds_per_round = min(5.0, seconds_per_round + 0.2)
                 if event.key == pygame.K_EQUALS or event.key == pygame.K_PLUS:
                     seconds_per_round = max(0.1, seconds_per_round - 0.2)
+                if event.key == pygame.K_t:
+                    show_tools = not show_tools
 
         now = time.time()
         if current_round >= round_count:
@@ -123,6 +127,7 @@ def run_replay_loop(match_id: str, initial_state: GameState, round_count: int, s
         if (not paused or step_round) and current_round < round_count and (now - last_tick) >= seconds_per_round:
             current_round += 1
             event_log.clear()
+            tool_log.clear()
 
             # Load round data
             round_data = replay.get_round_data(match_id, current_round)
@@ -134,6 +139,11 @@ def run_replay_loop(match_id: str, initial_state: GameState, round_count: int, s
                 # Format events for display
                 for event in events[-6:]:
                     event_log.append(f"R{event['round']}: {event['kind']} {event['payload']}")
+
+                # Tool calls for this round
+                tool_calls = replay.get_tool_calls_for_round(match_id, current_round)
+                for call in tool_calls[:6]:
+                    tool_log.append(f"{call['player_id']} {call['tool_name']}")
 
             last_tick = now
             step_round = False
@@ -180,6 +190,13 @@ def run_replay_loop(match_id: str, initial_state: GameState, round_count: int, s
                     line = f"{player_id}  score={player['score']}  keys={player['keys']}"
                     screen.blit(small_font.render(line, True, PLAYER_COLORS.get(player_id, TEXT_COLOR)), (right_x, right_y + offset))
                     offset += 20
+
+                # Tool calls (right panel, below scoreboard)
+                if show_tools:
+                    tool_y = right_y + offset + 10
+                    screen.blit(small_font.render("Tool Calls", True, TEXT_COLOR), (right_x, tool_y))
+                    for i, line in enumerate(tool_log[:6]):
+                        screen.blit(small_font.render(line, True, TEXT_COLOR), (right_x, tool_y + 18 + i * 16))
 
                 # Event ticker (bottom)
                 ticker_y = int(height * 0.85)
