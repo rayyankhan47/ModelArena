@@ -187,6 +187,16 @@ def _render_frame(screen, state: GameState, event_log: List[str], font, small_fo
         screen.blit(small_font.render(line, True, PLAYER_COLORS.get(player_id, TEXT_COLOR)), (right_x, right_y + offset))
         offset += 20
 
+    # Active deals (right panel)
+    deal_y = right_y + offset + 10
+    screen.blit(small_font.render("Deals", True, TEXT_COLOR), (right_x, deal_y))
+    if state.active_deals:
+        for i, deal in enumerate(state.active_deals[:4]):
+            summary = f"{deal.from_player}->{deal.to_player} {deal.status}"
+            screen.blit(small_font.render(summary, True, TEXT_COLOR), (right_x, deal_y + 18 + i * 16))
+    else:
+        screen.blit(small_font.render("None", True, TEXT_COLOR), (right_x, deal_y + 18))
+
     # Event ticker (bottom)
     ticker_y = int(height * 0.85)
     screen.blit(font.render("Events", True, TEXT_COLOR), (board_x, ticker_y))

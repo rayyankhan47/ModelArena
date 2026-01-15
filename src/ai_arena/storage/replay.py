@@ -191,9 +191,20 @@ def run_replay_loop(match_id: str, initial_state: GameState, round_count: int, s
                     screen.blit(small_font.render(line, True, PLAYER_COLORS.get(player_id, TEXT_COLOR)), (right_x, right_y + offset))
                     offset += 20
 
+                # Active deals (right panel)
+                deals = state_dict.get("active_deals") or []
+                deal_y = right_y + offset + 10
+                screen.blit(small_font.render("Deals", True, TEXT_COLOR), (right_x, deal_y))
+                if deals:
+                    for i, deal in enumerate(deals[:4]):
+                        summary = f"{deal.get('from_player')}->{deal.get('to_player')} {deal.get('status')}"
+                        screen.blit(small_font.render(summary, True, TEXT_COLOR), (right_x, deal_y + 18 + i * 16))
+                else:
+                    screen.blit(small_font.render("None", True, TEXT_COLOR), (right_x, deal_y + 18))
+
                 # Tool calls (right panel, below scoreboard)
                 if show_tools:
-                    tool_y = right_y + offset + 10
+                    tool_y = deal_y + 18 + (min(len(deals), 4) * 16) + 10
                     screen.blit(small_font.render("Tool Calls", True, TEXT_COLOR), (right_x, tool_y))
                     for i, line in enumerate(tool_log[:6]):
                         screen.blit(small_font.render(line, True, TEXT_COLOR), (right_x, tool_y + 18 + i * 16))
