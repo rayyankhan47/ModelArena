@@ -10,7 +10,7 @@ class Settings(BaseSettings):
 
     # Backboard API
     backboard_api_key: str = ""
-    backboard_base_url: str = "https://api.backboard.io"
+    backboard_base_url: str = "https://app.backboard.io/api"
     backboard_timeout: int = 30
 
     # Match Configuration
@@ -24,6 +24,8 @@ class Settings(BaseSettings):
     # Backboard Model Routing
     planner_model: str = "gpt-4"
     actor_model: str = "gpt-3.5-turbo"
+    planner_provider: str = ""
+    actor_provider: str = ""
 
     # Search Rate Limiting
     search_budget_per_agent: int = 1

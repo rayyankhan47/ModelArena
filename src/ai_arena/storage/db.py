@@ -3,6 +3,7 @@
 import sqlite3
 import json
 import uuid
+import time
 from typing import Dict, Any, List, Optional
 from pathlib import Path
 
@@ -34,8 +35,6 @@ class Database:
     def create_match(self, seed: str, max_rounds: int, config: Dict[str, Any]) -> str:
         """Create a new match record and return its ID."""
         match_id = str(uuid.uuid4())
-        created_at = json.dumps({"timestamp": json.dumps(time.time())})  # Store as JSON for consistency
-
         with self._get_conn() as conn:
             conn.execute("""
                 INSERT INTO matches (match_id, seed, max_rounds, created_at, config_json)

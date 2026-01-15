@@ -4,6 +4,7 @@ import typer
 from rich.console import Console
 
 from ai_arena.ui.pygame_app import run_demo
+from ai_arena.orchestrator.runner import OrchestratorRunner
 
 app = typer.Typer()
 console = Console()
@@ -24,6 +25,19 @@ def run(
         speed=max(0.1, speed),
         fullscreen=not windowed,
     )
+
+
+@app.command()
+def run_backboard(
+    seed: str = typer.Option(None, help="Match seed for reproducible games"),
+    rounds: int = typer.Option(None, help="Number of rounds to play"),
+    db_path: str = typer.Option("ai_arena.db", help="SQLite DB path for logs"),
+):
+    """Run a Backboard-powered match (headless) and log to SQLite."""
+    console.print("[bold blue]AI Arena[/bold blue] - Starting Backboard match...")
+    runner = OrchestratorRunner(db_path=db_path)
+    match_id = runner.run_match(seed=seed, rounds=rounds)
+    console.print(f"[green]Match complete:[/green] {match_id}")
 
 
 @app.command()

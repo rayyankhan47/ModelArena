@@ -83,11 +83,11 @@ Acceptance criteria:
 
 #### Milestone F — Orchestrator v1 (plan → negotiate → commit → resolve → memory)
 
-- [ ] Implement `orchestrator/prompts.py` (stable templates + strict output rules)
-- [ ] Implement `orchestrator/routing.py` (planner vs actor model mapping)
-- [ ] Implement `orchestrator/runner.py` (full round loop)
-- [ ] Implement strict JSON parsing + fallback to `NOOP` on failures
-- [ ] Log all agent calls (phase, model, latency, request/response)
+- [x] Implement `orchestrator/prompts.py` (stable templates + strict output rules)
+- [x] Implement `orchestrator/routing.py` (planner vs actor model mapping)
+- [x] Implement `orchestrator/runner.py` (full round loop)
+- [x] Implement strict JSON parsing + fallback to `NOOP` on failures
+- [x] Log all agent calls (phase, model, latency, request/response)
 
 Acceptance criteria:
 - 4 agents can play a full match end-to-end with stable pacing and logs.
@@ -212,5 +212,5 @@ We will build in this order to keep feedback tight and avoid integration dead-en
   - Added pacing controls (pause, step, speed)
 
 Next up:
-- [ ] Milestone F: Orchestrator v1 (plan → negotiate → commit → resolve → memory)
+- [ ] Milestone G: Tools (real tool execution + UI)
 
