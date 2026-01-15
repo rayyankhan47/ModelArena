@@ -40,11 +40,11 @@ Acceptance criteria:
 
 #### Milestone B — Deterministic game engine (no AI)
 
-- [ ] Implement `engine/types.py` (pydantic models, enums, action schema)
-- [ ] Implement `engine/generate.py` (seeded board generation + spawns)
-- [ ] Implement `engine/rules.py` (legal action computation)
-- [ ] Implement `engine/reducer.py` (simultaneous resolution + events + rewards)
-- [ ] Add minimal unit tests (determinism, collisions, steal, vault open)
+- [x] Implement `engine/types.py` (pydantic models, enums, action schema)
+- [x] Implement `engine/generate.py` (seeded board generation + spawns)
+- [x] Implement `engine/rules.py` (legal action computation)
+- [x] Implement `engine/reducer.py` (simultaneous resolution + events + rewards)
+- [x] Add minimal unit tests (determinism, collisions, steal, vault open)
 
 Acceptance criteria:
 - A seed produces identical initial states across runs.
@@ -193,6 +193,18 @@ We will build in this order to keep feedback tight and avoid integration dead-en
   - Set up complete package structure under src/ai_arena/
   - Updated README.md with installation and usage instructions
 - [x] Committed to GitHub
+
+#### 2026-01-15 (later)
+
+- [x] Completed Milestone B: deterministic game engine core
+  - Added engine types and enums
+  - Implemented seeded board generation and spawn layout
+  - Implemented legal action computation
+  - Implemented round resolution and events
+  - Added engine unit tests
+
+Next up:
+- [ ] Milestone C: Pygame UI v1 (engine-driven)
 
 Next up:
 - [ ] Milestone B: implement deterministic game engine
