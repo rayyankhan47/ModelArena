@@ -11,6 +11,10 @@ import pygame
 from ai_arena.engine.generate import generate_initial_state
 from ai_arena.engine.reducer import resolve_round
 from ai_arena.engine.rules import legal_actions
+from ai_arena.config import settings
+from ai_arena.orchestrator.prompts import action_prompt, negotiation_prompt, planning_prompt
+from ai_arena.orchestrator.runner import OrchestratorRunner, PLAYER_IDS
+from ai_arena.orchestrator.tools import parse_tool_calls
 from ai_arena.storage.logger import MatchReplay
 from ai_arena.engine.types import (
     ActionType,
@@ -205,6 +209,248 @@ def run_demo(seed: str = "demo_1", rounds: int = 15, speed: float = 1.0, fullscr
             player_icons=player_icons,
             stats=stats,
             phase_context=None,
+        )
+        pygame.display.flip()
+        clock.tick(60)
+
+
+def run_live_backboard(
+    seed: str | None = None,
+    rounds: int | None = None,
+    speed: float = 1.0,
+    fullscreen: bool = True,
+    db_path: str = "ai_arena.db",
+):
+    """Run a live Backboard match with a phased UI."""
+    pygame.init()
+
+    if fullscreen:
+        screen = pygame.display.set_mode((0, 0), pygame.FULLSCREEN)
+    else:
+        screen = pygame.display.set_mode((1400, 900))
+
+    pygame.display.set_caption("AI Arena - Grid Heist (Live)")
+    clock = pygame.time.Clock()
+    font = pygame.font.SysFont("Arial", 18)
+    small_font = pygame.font.SysFont("Arial", 14)
+    heading_font = pygame.font.SysFont("Arial", 22, bold=True)
+
+    match_seed = seed or settings.default_match_seed
+    max_rounds = rounds or settings.default_match_rounds
+
+    runner = OrchestratorRunner(db_path=db_path)
+    runner._setup_assistants_and_threads()
+
+    state = generate_initial_state(seed=match_seed, max_rounds=max_rounds)
+    deals = []
+    event_log: List[str] = []
+    selected_agent = "P1"
+    drawer_open = False
+    started = False
+    autoplay = False
+    match_over = False
+    phase_index = 0
+    phase_started_at = time.time()
+    negotiation_messages: List[Dict[str, str]] = []
+    negotiation_index = 0
+    pending_actions: Dict[str, object] | None = None
+    last_actions: Dict[str, object] = {}
+    last_rewards: Dict[str, int] = {}
+    last_events: List[object] = []
+    shared_summary = ""
+    stats = _init_match_stats()
+    player_icons = _load_player_icons()
+    phase_context: Dict[str, Dict[str, object]] = {
+        pid: {"models": {}, "tools": []} for pid in PLAYER_NAMES.keys()
+    }
+    layout: Dict[str, object] = {}
+
+    phase_step_seconds = max(0.4, PHASE_STEP_SECONDS / max(speed, 0.1))
+    negotiation_step_seconds = max(0.2, NEGOTIATION_STEP_SECONDS / max(speed, 0.1))
+
+    def reset_round_context() -> None:
+        nonlocal phase_context, negotiation_messages, negotiation_index, pending_actions
+        phase_context = {pid: {"models": {}, "tools": []} for pid in PLAYER_NAMES.keys()}
+        negotiation_messages = []
+        negotiation_index = 0
+        pending_actions = None
+
+    def enter_phase(new_index: int) -> None:
+        nonlocal negotiation_messages, negotiation_index, pending_actions, shared_summary, state, match_over
+        nonlocal last_actions, last_rewards, last_events
+        phase_name = PHASES[new_index][1]
+        if phase_name == "Planning":
+            shared_summary = runner._get_shared_summary(state.round)
+            for player_id in PLAYER_IDS:
+                model_route = runner.router.get_player_model(player_id)
+                response = runner._send_phase_message(
+                    state=state,
+                    deals=deals,
+                    player_id=player_id,
+                    phase="plan",
+                    content=planning_prompt(runner._state_summary(state), shared_summary),
+                    model_route=model_route,
+                    memory="Auto",
+                    web_search=runner._web_search_mode(player_id, state.round),
+                )
+                phase_context[player_id]["models"]["plan"] = model_route.model
+                phase_context[player_id]["planning"] = _extract_response_text(response)
+                tool_calls = parse_tool_calls(response)
+                if tool_calls:
+                    phase_context[player_id]["tools"].extend([c["name"] for c in tool_calls if c.get("name")])
+        if phase_name == "Negotiation":
+            negotiation_messages = [{"speaker": "Moderator", "text": f"Round {state.round + 1} negotiation begins."}]
+            for player_id in PLAYER_IDS:
+                model_route = runner.router.get_player_model(player_id)
+                response = runner._send_phase_message(
+                    state=state,
+                    deals=deals,
+                    player_id=player_id,
+                    phase="negotiate",
+                    content=negotiation_prompt(runner._state_summary(state), shared_summary),
+                    model_route=model_route,
+                    memory="Auto",
+                )
+                phase_context[player_id]["models"]["negotiate"] = model_route.model
+                message = _extract_response_text(response).strip()
+                if message:
+                    negotiation_messages.append({"speaker": PLAYER_NAMES.get(player_id, player_id), "text": message})
+                    runner._append_shared_message(f"{player_id} says: {message}")
+            negotiation_index = 0
+        if phase_name == "Commit":
+            pending_actions = {}
+            for player_id in PLAYER_IDS:
+                model_route = runner.router.get_player_model(player_id)
+                response = runner._send_phase_message(
+                    state=state,
+                    deals=deals,
+                    player_id=player_id,
+                    phase="commit",
+                    content=action_prompt(runner._state_summary(state), shared_summary),
+                    model_route=model_route,
+                    memory="Readonly",
+                )
+                phase_context[player_id]["models"]["commit"] = model_route.model
+                phase_context[player_id]["commit"] = _extract_response_text(response)
+                action = runner._parse_action(response)
+                if isinstance(action, NoopAction):
+                    response = runner._send_phase_message(
+                        state=state,
+                        deals=deals,
+                        player_id=player_id,
+                        phase="commit_retry",
+                        content=action_prompt(runner._state_summary(state), shared_summary),
+                        model_route=model_route,
+                        memory="Readonly",
+                    )
+                    phase_context[player_id]["commit"] = _extract_response_text(response)
+                    action = runner._parse_action(response)
+                pending_actions[player_id] = action
+        if phase_name == "Resolve":
+            if pending_actions is None:
+                pending_actions = _select_random_actions(state)
+            result = resolve_round(state, pending_actions)
+            state = result.next_state
+            runner.logger.log_round_complete(state.round - 1, state, pending_actions, result.rewards)
+            runner.logger.log_events(state.round - 1, result.events)
+            _append_events(result.events, event_log, stats)
+            last_actions = pending_actions
+            last_rewards = result.rewards
+            last_events = result.events
+            for player_id, delta in result.rewards.items():
+                if player_id in phase_context:
+                    phase_context[player_id]["resolve"] = f"Reward delta: {delta}"
+            pending_actions = None
+            if state.round >= state.max_rounds:
+                match_over = True
+        if phase_name == "Memory":
+            round_summary = runner._build_round_summary(state.round - 1, last_actions, last_rewards, last_events)
+            for player_id in PLAYER_IDS:
+                runner._append_agent_memory(player_id, round_summary)
+                runner.logger.log_memory_summaries(state.round - 1, player_id, round_summary, round_summary)
+                phase_context[player_id]["memory_private"] = round_summary
+                phase_context[player_id]["memory_shared"] = round_summary
+            runner._append_shared_message(round_summary)
+
+    def advance_phase() -> None:
+        nonlocal phase_index, negotiation_index, phase_started_at, match_over
+        if not started or match_over:
+            return
+        phase_name = PHASES[phase_index][1]
+        if phase_name == "Negotiation" and negotiation_index < len(negotiation_messages):
+            negotiation_index += 1
+            phase_started_at = time.time()
+            return
+        phase_index = (phase_index + 1) % len(PHASES)
+        if phase_index == 0:
+            reset_round_context()
+        enter_phase(phase_index)
+        phase_started_at = time.time()
+
+    while True:
+        for event in pygame.event.get():
+            if event.type == pygame.QUIT:
+                pygame.quit()
+                sys.exit(0)
+            if event.type == pygame.KEYDOWN:
+                if event.key == pygame.K_ESCAPE:
+                    pygame.quit()
+                    sys.exit(0)
+            if event.type == pygame.MOUSEBUTTONDOWN and event.button == 1:
+                pos = event.pos
+                if not started:
+                    if layout.get("play_button") and layout["play_button"].collidepoint(pos):
+                        started = True
+                        enter_phase(phase_index)
+                    continue
+                if layout.get("autoplay_button") and layout["autoplay_button"].collidepoint(pos):
+                    if not match_over:
+                        autoplay = not autoplay
+                        phase_started_at = time.time()
+                if layout.get("next_button") and layout["next_button"].collidepoint(pos):
+                    advance_phase()
+                if layout.get("agent_icons"):
+                    for pid, rect in layout["agent_icons"].items():
+                        if rect.collidepoint(pos):
+                            selected_agent = pid
+                            drawer_open = True
+                            break
+                if drawer_open and layout.get("drawer_rect") and not layout["drawer_rect"].collidepoint(pos):
+                    drawer_open = False
+
+        now = time.time()
+        if autoplay and started and not match_over:
+            phase_name = PHASES[phase_index][1]
+            if phase_name == "Negotiation":
+                if negotiation_index < len(negotiation_messages):
+                    if now - phase_started_at >= negotiation_step_seconds:
+                        negotiation_index += 1
+                        phase_started_at = now
+                else:
+                    if now - phase_started_at >= phase_step_seconds:
+                        advance_phase()
+            else:
+                if now - phase_started_at >= phase_step_seconds:
+                    advance_phase()
+
+        layout = _render_frame(
+            screen=screen,
+            state=state,
+            event_log=event_log,
+            font=font,
+            small_font=small_font,
+            heading_font=heading_font,
+            started=started,
+            autoplay=autoplay,
+            match_over=match_over,
+            phase_index=phase_index,
+            negotiation_messages=negotiation_messages,
+            negotiation_index=negotiation_index,
+            selected_agent=selected_agent,
+            drawer_open=drawer_open,
+            player_icons=player_icons,
+            stats=stats,
+            phase_context=phase_context,
         )
         pygame.display.flip()
         clock.tick(60)

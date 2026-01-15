@@ -3,7 +3,7 @@
 import typer
 from rich.console import Console
 
-from ai_arena.ui.pygame_app import run_demo
+from ai_arena.ui.pygame_app import run_demo, run_live_backboard
 from ai_arena.orchestrator.runner import OrchestratorRunner
 
 app = typer.Typer()
@@ -38,6 +38,25 @@ def run_backboard(
     runner = OrchestratorRunner(db_path=db_path)
     match_id = runner.run_match(seed=seed, rounds=rounds)
     console.print(f"[green]Match complete:[/green] {match_id}")
+
+
+@app.command()
+def run_live(
+    seed: str = typer.Option(None, help="Match seed for reproducible games"),
+    rounds: int = typer.Option(None, help="Number of rounds to play"),
+    speed: float = typer.Option(1.0, help="Phase speed multiplier (lower is slower)"),
+    windowed: bool = typer.Option(False, help="Run in a window instead of fullscreen"),
+    db_path: str = typer.Option("ai_arena.db", help="SQLite DB path for logs"),
+):
+    """Run a Backboard-powered match with live UI."""
+    console.print("[bold blue]AI Arena[/bold blue] - Starting Backboard match (live UI)...")
+    run_live_backboard(
+        seed=seed,
+        rounds=rounds,
+        speed=max(0.1, speed),
+        fullscreen=not windowed,
+        db_path=db_path,
+    )
 
 
 @app.command()
