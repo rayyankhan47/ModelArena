@@ -240,6 +240,16 @@ def run_live_backboard(
 
     runner = OrchestratorRunner(db_path=db_path)
     runner._setup_assistants_and_threads()
+    runner.logger.start_match(
+        seed=match_seed,
+        max_rounds=max_rounds,
+        config={
+            "p1_model": settings.p1_model,
+            "p2_model": settings.p2_model,
+            "p3_model": settings.p3_model,
+            "p4_model": settings.p4_model,
+        },
+    )
 
     state = generate_initial_state(seed=match_seed, max_rounds=max_rounds)
     deals = []
